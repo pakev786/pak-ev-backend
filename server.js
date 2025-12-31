@@ -16,7 +16,7 @@ import orderRoutes from "./routes/orderRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import warrantyRoutes from "./routes/warrantyRoutes.js ";  
 import voucherRoutes from "./routes/voucherRoutes.js";
-import adminAuthRoutes from "./routes/adminAuthroutes.js";
+import adminAuthRoutes from "./routes/adminAuthRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 
 dotenv.config();
