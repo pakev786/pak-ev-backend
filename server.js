@@ -9,7 +9,7 @@ import categoryRoutes from "./routes/categoryRoutes.js";
 import sectionRoutes from "./routes/sectionRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
 import bannerRoutes from "./routes/bannerRoutes.js";
-import authRoutes from "./routes/authRoutes.js";
+import authRoutes from "./routes/authroutes.js";
 import bankRoutes from "./routes/bankRoutes.js";
 import settingRoutes from "./routes/settingRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
