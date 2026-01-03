@@ -44,7 +44,8 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
 }
 console.log("------------------------------------------------");
 
-const uploadsPath = path.join(__dirname, 'uploads');
+// const uploadsPath = path.join(__dirname, 'uploads');
+const uploadsPath = '/uploads';
 // Ensure upload directory exists
 import fs from 'fs';
 if (!fs.existsSync(uploadsPath)){
