@@ -42,8 +42,16 @@ const orderSchema = mongoose.Schema({
     required: true
   },
   // New Fields
+  recipientName: {
+    type: String,
+    required: true
+  },
   shippingAddress: {
     type: String,
+    required: true
+  },
+  postalCode: {
+    type: String, // Stored as string but validated as number
     required: true
   },
   contactNumber: {

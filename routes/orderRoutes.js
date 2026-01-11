@@ -185,15 +185,15 @@ router.post("/", upload.single('paymentScreenshot'), async (req, res) => {
   try {
     const { 
       user, products, totalCost, onlinePaid, codAmount, bankAccount, deliveryTime,
-      shippingAddress, contactNumber
+      recipientName, shippingAddress, postalCode, contactNumber
     } = req.body;
 
     if (!req.file) {
       return res.status(400).json({ message: "Payment screenshot is required" });
     }
 
-    if (!shippingAddress || !contactNumber) {
-        return res.status(400).json({ message: "Shipping Address and Contact Number are required" });
+    if (!recipientName || !shippingAddress || !postalCode || !contactNumber) {
+        return res.status(400).json({ message: "All shipping details are required" });
     }
 
     const order = new Order({
@@ -206,7 +206,9 @@ router.post("/", upload.single('paymentScreenshot'), async (req, res) => {
       deliveryTime: null,
       maxDeliveryDays: deliveryTime,
       paymentScreenshot: `/uploads/orders/${req.file.filename}`,
+      recipientName,
       shippingAddress,
+      postalCode,
       contactNumber
     });
 
@@ -214,7 +216,7 @@ router.post("/", upload.single('paymentScreenshot'), async (req, res) => {
 
     const adminSetting = await Setting.findOne({ key: 'admin_email' });
     if (adminSetting && adminSetting.value) {
-      const emailText = `New Order Received!\n\nOrder ID: #${savedOrder.id.slice(-6)}\nTotal Amount: Rs ${totalCost}\nOnline Paid: Rs ${onlinePaid}\nCustomer: ${contactNumber}\nAddress: ${shippingAddress}\n\nPlease check the admin dashboard for details.`;
+      const emailText = `New Order Received!\n\nOrder ID: #${savedOrder.id.slice(-6)}\nTotal Amount: Rs ${totalCost}\nOnline Paid: Rs ${onlinePaid}\nRecipient: ${recipientName}\nContact: ${contactNumber}\nAddress: ${shippingAddress}, ${postalCode}\n\nPlease check the admin dashboard for details.`;
       await sendEmail(adminSetting.value, 'New Order Alert - Pak EV', emailText);
     }
 

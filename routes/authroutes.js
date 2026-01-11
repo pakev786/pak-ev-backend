@@ -1,36 +1,48 @@
 import express from "express";
 import nodemailer from "nodemailer";
+import axios from "axios";
 import User from "../models/User.js";
 
 const router = express.Router();
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-// --- Email Configuration ---
-let transporter = null;
-
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
+// Helper to get user info from Google
+const getGoogleUser = async (accessToken) => {
+    try {
+        const { data } = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        return data;
+    } catch (error) {
+        console.error("Error fetching Google user:", error);
+        throw new Error("Invalid access token");
     }
-  });
-} 
+};
 
 const sendEmailOTP = async (email, otp) => {
-  if (!transporter) {
-    console.error("❌ Email Error: Missing .env credentials.");
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
+
+  if (!emailUser || !emailPass) {
+    console.error("❌ Email Error: Missing .env credentials (EMAIL_USER or EMAIL_PASS).");
     console.log(`>>> ⚠️ FALLBACK (Console OTP): ${otp} <<<`);
     return true; 
   }
 
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: emailUser,
+      pass: emailPass
+    }
+  });
+
   const mailOptions = {
-    from: process.env.EMAIL_USER,
+    from: emailUser,
     to: email,
-    subject: 'Pak EV - Security Code',
-    text: `Your security code is: ${otp}. Use this to verify your identity.`
+    subject: 'Pak EV - Verification Code',
+    text: `Your verification code is: ${otp}. Do not share this code with anyone.`
   };
 
   try {
@@ -39,6 +51,9 @@ const sendEmailOTP = async (email, otp) => {
     return true;
   } catch (error) {
     console.error("❌ Email Send Failed:", error.message);
+    if (error.code === 'EAUTH') {
+        console.error("   -> Hint: Check your Gmail App Password and ensure EMAIL_USER is correct.");
+    }
     console.log(`>>> ⚠️ FALLBACK (Console OTP): ${otp} <<<`);
     return true;
   }
@@ -128,7 +143,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// POST: Forgot Password - Request OTP
+// POST: Forgot Password
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -137,7 +152,7 @@ router.post("/forgot-password", async (req, res) => {
     if (!user) return res.status(404).json({ message: "Email not registered" });
 
     const otp = generateOTP();
-    user.otp = otp; // Temporarily store reset OTP
+    user.otp = otp;
     await user.save();
 
     await sendEmailOTP(email, otp);
@@ -148,7 +163,7 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
-// POST: Reset Password - Verify OTP and Update Password
+// POST: Reset Password
 router.post("/reset-password", async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
@@ -158,13 +173,49 @@ router.post("/reset-password", async (req, res) => {
     if (user.otp !== otp) return res.status(400).json({ message: "Invalid OTP" });
 
     user.password = newPassword;
-    user.otp = null; // Clear OTP after usage
+    user.otp = null;
     await user.save();
 
     res.json({ message: "Password reset successfully" });
 
   } catch (error) {
     res.status(500).json({ message: "Failed to reset password", error: error.message });
+  }
+});
+
+// POST: Google Login
+router.post("/google", async (req, res) => {
+  try {
+    const { access_token } = req.body;
+    
+    // Verify token with Google
+    const googleUser = await getGoogleUser(access_token);
+    const { name, email, sub } = googleUser; // sub is googleId
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      // Create new user (automatically verified)
+      user = new User({
+        name: name || "Google User",
+        email,
+        password: `google_${sub}`, // Dummy pass
+        isVerified: true
+      });
+      await user.save();
+    }
+
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      token: "simulated-jwt-token"
+    });
+
+  } catch (error) {
+    console.error("Google Auth Error:", error.response?.data || error.message);
+    res.status(500).json({ message: "Google auth failed", error: error.message });
   }
 });
 
