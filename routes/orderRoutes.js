@@ -8,7 +8,7 @@ import Product from "../models/Product.js";
 import Warranty from "../models/Warranty.js";
 import Setting from "../models/Setting.js"; 
 import User from "../models/User.js"; 
-import Chat from "../models/Chat.js"; // Import Chat model
+import Chat from "../models/Chat.js"; 
 
 const router = express.Router();
 
@@ -99,8 +99,6 @@ router.get("/", async (req, res) => {
 
     for (const order of expiredOrders) {
       order.status = 'Delivered';
-      // Removed: deleteScreenshot(order.paymentScreenshot); 
-      // We keep the receipt now as requested
       await createWarranties(order, order.deliveryTime);
       await order.save();
     }
@@ -155,7 +153,6 @@ router.put("/:id/status", async (req, res) => {
     }
 
     if (status === 'Delivered' && oldStatus !== 'Delivered') {
-        // Removed: deleteScreenshot(order.paymentScreenshot);
         await createWarranties(order, new Date());
     }
 
@@ -167,8 +164,8 @@ router.put("/:id/status", async (req, res) => {
   }
 });
 
-// PUT: Update Order Receipt (Admin)
-router.put("/:id/receipt", upload.single('receipt'), async (req, res) => {
+// PUT: Update Order DELIVERY PROOF (Admin) - CHANGED
+router.put("/:id/delivery-proof", upload.single('receipt'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "Receipt file is required" });
@@ -177,32 +174,28 @@ router.put("/:id/receipt", upload.single('receipt'), async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // Update the receipt path
-    const newReceiptPath = `/uploads/orders/${req.file.filename}`;
+    // Update the delivery proof path
+    const newProofPath = `/uploads/orders/${req.file.filename}`;
     
-    // Optionally delete OLD receipt if it exists and differs (to save space, but keep history if needed)
-    // For now, we just overwrite the reference.
-
-    order.paymentScreenshot = newReceiptPath; 
+    order.deliveryScreenshot = newProofPath; 
     await order.save();
 
     // --- Inject into Chat ---
-    // We send a message from ADMIN to the User with the receipt link
+    // We send a message from ADMIN to the User
     if (order.user) {
         const chatMessage = new Chat({
             sender: "ADMIN",
             receiver: order.user.toString(),
-            message: `Order #${order.id.slice(-6)}: Here is your updated delivery/payment receipt: ${newReceiptPath}` 
-            // Frontend should handle rendering this link as an image or download
+            message: `Order #${order.id.slice(-6)}: Here is your delivery proof: ${newProofPath}` 
         });
         await chatMessage.save();
     }
 
-    res.json({ message: "Receipt updated and sent to chat", path: newReceiptPath });
+    res.json({ message: "Delivery proof updated and sent to chat", path: newProofPath });
 
   } catch (error) {
     if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ message: "Error updating receipt", error: error.message });
+    res.status(500).json({ message: "Error updating delivery proof", error: error.message });
   }
 });
 
