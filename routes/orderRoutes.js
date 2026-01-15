@@ -8,6 +8,7 @@ import Product from "../models/Product.js";
 import Warranty from "../models/Warranty.js";
 import Setting from "../models/Setting.js"; 
 import User from "../models/User.js"; 
+import Chat from "../models/Chat.js"; // Import Chat model
 
 const router = express.Router();
 
@@ -63,19 +64,6 @@ const sendEmail = async (to, subject, text) => {
   }
 };
 
-const deleteScreenshot = (screenshotPath) => {
-  if (!screenshotPath) return;
-  const cleanPath = screenshotPath.startsWith('/') ? screenshotPath.substring(1) : screenshotPath;
-  const fullPath = path.resolve(cleanPath);
-  if (fs.existsSync(fullPath)) {
-    try {
-      fs.unlinkSync(fullPath);
-    } catch (err) {
-      console.error(`Failed to delete screenshot: ${err.message}`);
-    }
-  }
-};
-
 const createWarranties = async (order, startDate) => {
   for (const item of order.products) {
     try {
@@ -111,8 +99,8 @@ router.get("/", async (req, res) => {
 
     for (const order of expiredOrders) {
       order.status = 'Delivered';
-      deleteScreenshot(order.paymentScreenshot);
-      order.paymentScreenshot = null;
+      // Removed: deleteScreenshot(order.paymentScreenshot); 
+      // We keep the receipt now as requested
       await createWarranties(order, order.deliveryTime);
       await order.save();
     }
@@ -167,8 +155,7 @@ router.put("/:id/status", async (req, res) => {
     }
 
     if (status === 'Delivered' && oldStatus !== 'Delivered') {
-        deleteScreenshot(order.paymentScreenshot);
-        order.paymentScreenshot = null; 
+        // Removed: deleteScreenshot(order.paymentScreenshot);
         await createWarranties(order, new Date());
     }
 
@@ -177,6 +164,45 @@ router.put("/:id/status", async (req, res) => {
   } catch (error) {
     console.error("Update Error:", error);
     res.status(500).json({ message: "Error updating order", error: error.message });
+  }
+});
+
+// PUT: Update Order Receipt (Admin)
+router.put("/:id/receipt", upload.single('receipt'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Receipt file is required" });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // Update the receipt path
+    const newReceiptPath = `/uploads/orders/${req.file.filename}`;
+    
+    // Optionally delete OLD receipt if it exists and differs (to save space, but keep history if needed)
+    // For now, we just overwrite the reference.
+
+    order.paymentScreenshot = newReceiptPath; 
+    await order.save();
+
+    // --- Inject into Chat ---
+    // We send a message from ADMIN to the User with the receipt link
+    if (order.user) {
+        const chatMessage = new Chat({
+            sender: "ADMIN",
+            receiver: order.user.toString(),
+            message: `Order #${order.id.slice(-6)}: Here is your updated delivery/payment receipt: ${newReceiptPath}` 
+            // Frontend should handle rendering this link as an image or download
+        });
+        await chatMessage.save();
+    }
+
+    res.json({ message: "Receipt updated and sent to chat", path: newReceiptPath });
+
+  } catch (error) {
+    if (req.file) fs.unlinkSync(req.file.path);
+    res.status(500).json({ message: "Error updating receipt", error: error.message });
   }
 });
 
