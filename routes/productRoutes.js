@@ -8,6 +8,7 @@ import Section from "../models/Section.js";
 
 const router = express.Router();
 
+// ... (Keep existing storage/upload configuration as is) ...
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = 'uploads/';
@@ -43,49 +44,46 @@ const cpUpload = upload.fields([
 
 // --- ROUTES ---
 
-// GET: Search products
+// ... (Keep GET routes as is) ...
 router.get("/search", async (req, res) => {
-  try {
-    const { q } = req.query;
-    if (!q) return res.json([]);
-
-    // Create a fuzzy regex: e.g., "motor" -> /m.*o.*t.*o.*r/i
-    // This allows for some characters in between, handling slight variations
-    const fuzzy = q.split('').join('.*');
-    const regex = new RegExp(fuzzy, 'i');
-
-    const products = await Product.find({
-      $or: [
-        { title: { $regex: regex } },
-        { description: { $regex: regex } },
-        // Also check exact substring matches for stronger relevance
-        { title: { $regex: q, $options: 'i' } }
-      ]
-    }).populate('category', 'name').sort({ createdAt: -1 });
-
-    res.json(products);
-  } catch (error) {
-    res.status(500).json({ message: "Error searching products", error: error.message });
-  }
+    // ... (Keep existing code)
+    try {
+        const { q } = req.query;
+        if (!q) return res.json([]);
+        const fuzzy = q.split('').join('.*');
+        const regex = new RegExp(fuzzy, 'i');
+        const products = await Product.find({
+          $or: [
+            { title: { $regex: regex } },
+            { description: { $regex: regex } },
+            { title: { $regex: q, $options: 'i' } }
+          ]
+        }).populate('category', 'name').sort({ createdAt: -1 });
+        res.json(products);
+      } catch (error) {
+        res.status(500).json({ message: "Error searching products", error: error.message });
+      }
 });
 
 router.get("/", async (req, res) => {
-  try {
-    const products = await Product.find({})
-      .populate('category', 'name')
-      .populate('section', 'name')
-      .sort({ createdAt: -1 });
-    res.json(products);
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching products", error: error.message });
-  }
+    // ... (Keep existing code)
+    try {
+        const products = await Product.find({})
+          .populate('category', 'name')
+          .populate('section', 'name')
+          .sort({ createdAt: -1 });
+        res.json(products);
+      } catch (error) {
+        res.status(500).json({ message: "Error fetching products", error: error.message });
+      }
 });
 
+// UPDATE: Added youtubeLink to POST
 router.post("/", cpUpload, async (req, res) => {
   try {
     const { 
       title, description, price, optionalPrice, category, section, codAvailable, isAvailable,
-      deliveryCharges, deliveryTimeMin, deliveryTimeMax, warranty
+      deliveryCharges, deliveryTimeMin, deliveryTimeMax, warranty, youtubeLink 
     } = req.body;
     
     if (!req.files || !req.files['image']) {
@@ -112,6 +110,7 @@ router.post("/", cpUpload, async (req, res) => {
       description: description || '',
       price,
       optionalPrice: optionalPrice || null,
+      youtubeLink: youtubeLink || '', // ADDED
       image: imagePath,
       extraImages: extraImagesPaths,
       category, 
@@ -128,6 +127,7 @@ router.post("/", cpUpload, async (req, res) => {
     res.status(201).json(savedProduct);
   } catch (error) {
     if (req.files) {
+        // Cleanup uploads on error
       if (req.files['image']) fs.unlinkSync(req.files['image'][0].path);
       if (req.files['extraImages']) req.files['extraImages'].forEach(file => fs.unlinkSync(file.path));
     }
@@ -136,11 +136,12 @@ router.post("/", cpUpload, async (req, res) => {
   }
 });
 
+// UPDATE: Added youtubeLink to PUT
 router.put("/:id", cpUpload, async (req, res) => {
   try {
     const { 
       title, description, price, optionalPrice, category, section, codAvailable, isAvailable,
-      deliveryCharges, deliveryTimeMin, deliveryTimeMax, warranty
+      deliveryCharges, deliveryTimeMin, deliveryTimeMax, warranty, youtubeLink
     } = req.body;
     
     const product = await Product.findById(req.params.id);
@@ -155,6 +156,9 @@ router.put("/:id", cpUpload, async (req, res) => {
     product.optionalPrice = optionalPrice !== undefined ? optionalPrice : product.optionalPrice;
     product.category = category || product.category;
     
+    // ADDED
+    if (youtubeLink !== undefined) product.youtubeLink = youtubeLink;
+
     if (codAvailable !== undefined) product.codAvailable = codAvailable === 'true' || codAvailable === true;
     if (isAvailable !== undefined) product.isAvailable = isAvailable === 'true' || isAvailable === true;
     if (deliveryCharges !== undefined) product.deliveryCharges = deliveryCharges;
@@ -173,13 +177,16 @@ router.put("/:id", cpUpload, async (req, res) => {
         product.section = sectionId;
     }
 
+    // Handle Cover Image Replacement
     if (req.files && req.files['image']) {
       const cleanPath = product.image.startsWith('/') ? product.image.substring(1) : product.image;
       const oldPath = path.resolve(cleanPath);
+      // Delete old file
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
       product.image = `/uploads/${req.files['image'][0].filename}`;
     }
 
+    // Handle Extra Images Addition (Appends to existing)
     if (req.files && req.files['extraImages']) {
       const newPaths = req.files['extraImages'].map(file => `/uploads/${file.filename}`);
       product.extraImages = [...product.extraImages, ...newPaths];
@@ -194,34 +201,76 @@ router.put("/:id", cpUpload, async (req, res) => {
   }
 });
 
+// --- NEW ROUTE: DELETE SPECIFIC IMAGE ---
+router.delete("/:id/images", async (req, res) => {
+    try {
+        const { imageUrl, type } = req.body; // type: 'cover' or 'extra'
+        const product = await Product.findById(req.params.id);
+
+        if (!product) return res.status(404).json({ message: "Product not found" });
+
+        // Helper to remove file from FS
+        const removeFile = (urlPath) => {
+            const cleanPath = urlPath.startsWith('/') ? urlPath.substring(1) : urlPath;
+            const fullPath = path.resolve(cleanPath);
+            if (fs.existsSync(fullPath)) {
+                fs.unlinkSync(fullPath);
+            }
+        };
+
+        if (type === 'cover') {
+            // Remove cover image
+            if (product.image === imageUrl) {
+                removeFile(imageUrl);
+                product.image = ""; // Or reset to a placeholder if needed
+            }
+        } else if (type === 'extra') {
+            // Remove from array
+            if (product.extraImages.includes(imageUrl)) {
+                removeFile(imageUrl);
+                product.extraImages = product.extraImages.filter(img => img !== imageUrl);
+            }
+        }
+
+        await product.save();
+        res.json({ message: "Image removed successfully", product });
+
+    } catch (error) {
+        console.error("Error deleting image:", error);
+        res.status(500).json({ message: "Error deleting image", error: error.message });
+    }
+});
+
+// ... (Keep DELETE product route as is) ...
 router.delete("/:id", async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
+    // ... (Keep existing code)
+    try {
+        const product = await Product.findById(req.params.id);
+        
+        if (!product) {
+          return res.status(404).json({ message: "Product not found" });
+        }
     
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    if (product.image) {
-      const cleanPath = product.image.startsWith('/') ? product.image.substring(1) : product.image;
-      const fullPath = path.resolve(cleanPath);
-      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-    }
-
-    if (product.extraImages && product.extraImages.length > 0) {
-      product.extraImages.forEach(img => {
-        const cleanPath = img.startsWith('/') ? img.substring(1) : img;
-        const fullPath = path.resolve(cleanPath);
-        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-      });
-    }
-
-    await Product.deleteOne({ _id: product._id });
-    res.json({ message: "Product deleted" });
-
-  } catch (error) {
-    res.status(500).json({ message: "Error deleting product", error: error.message });
-  }
+        if (product.image) {
+          const cleanPath = product.image.startsWith('/') ? product.image.substring(1) : product.image;
+          const fullPath = path.resolve(cleanPath);
+          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        }
+    
+        if (product.extraImages && product.extraImages.length > 0) {
+          product.extraImages.forEach(img => {
+            const cleanPath = img.startsWith('/') ? img.substring(1) : img;
+            const fullPath = path.resolve(cleanPath);
+            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+          });
+        }
+    
+        await Product.deleteOne({ _id: product._id });
+        res.json({ message: "Product deleted" });
+    
+      } catch (error) {
+        res.status(500).json({ message: "Error deleting product", error: error.message });
+      }
 });
 
 export default router;

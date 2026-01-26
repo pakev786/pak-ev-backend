@@ -18,6 +18,12 @@ const productSchema = mongoose.Schema({
     type: Number,
     default: null
   },
+  // --- NEW FIELD ADDED HERE ---
+  youtubeLink: {
+    type: String,
+    default: ''
+  },
+  // ----------------------------
   image: {
     type: String, 
     required: true
