@@ -26,11 +26,6 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 const app = express();
 
-app.use(
-  "/zohoverify",
-  express.static(path.join(__dirname, "zohoverify"))
-);
-
 
 app.use(cors({
     origin: '*', 

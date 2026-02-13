@@ -4,6 +4,9 @@ import EVBattery from "../models/EVBattery.js";
 import EVKit from "../models/EVKit.js";
 import EVBike from "../models/EVBike.js";
 import EVRange from "../models/EVRange.js";
+import EVFeaturedConfig from '../models/EVFeaturedConfig.js';
+import Product from '../models/Product.js';
+import LoadFeaturedConfig from '../models/LoadFeaturedConfig.js';
 
 const router = express.Router();
 
@@ -59,5 +62,75 @@ router.delete("/batteries/:id", async (req, res) => { await EVBattery.findByIdAn
 router.delete("/kits/:id", async (req, res) => { await EVKit.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
 router.delete("/bikes/:id", async (req, res) => { await EVBike.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
 router.delete("/ranges/:id", async (req, res) => { await EVRange.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
+
+
+
+
+
+router.get('/featured-products', async (req, res) => {
+  try {
+    const config = await EVFeaturedConfig.findOne();
+
+    if (!config || !config.productIds || config.productIds.length === 0) {
+      return res.json([]);
+    }
+
+    const products = await Product.find({
+      _id: { $in: config.productIds }
+    }).select('title price image description category isAvailable codAvailable optionalPrice');
+
+    res.json(products);
+  } catch (error) {
+    console.error("Error fetching featured EV products:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
+
+router.post('/featured-products', async (req, res) => {
+  const { productIds } = req.body;
+
+  try {
+    let config = await EVFeaturedConfig.findOne();
+
+    if (config) {
+      config.productIds = productIds;
+      await config.save();
+    } else {
+      config = await EVFeaturedConfig.create({ productIds });
+    }
+
+    res.status(200).json({ message: "Featured products updated", config });
+  } catch (error) {
+    console.error("Error saving featured EV products:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
+
+router.get('/load-featured-products', async (req, res) => {
+  try {
+    const config = await LoadFeaturedConfig.findOne().populate('productIds');
+    res.json(config ? config.productIds : []);
+  } catch (error) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
+router.post('/load-featured-products', async (req, res) => {
+  const { productIds } = req.body;
+  try {
+    let config = await LoadFeaturedConfig.findOne();
+    if (config) {
+      config.productIds = productIds;
+      await config.save();
+    } else {
+      config = await LoadFeaturedConfig.create({ productIds });
+    }
+    res.status(200).json({ message: "Load Featured products updated", config });
+  } catch (error) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
 
 export default router;
