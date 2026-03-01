@@ -17,11 +17,11 @@ const bannerSchema = mongoose.Schema({
   },
   linkType: {
     type: String,
-    enum: ['none', 'static', 'category', 'section'],
+    enum: ['none', 'static', 'category', 'section', 'external'],
     default: 'none'
   },
   linkValue: {
-    type: String, // Stores URL path (static) or ObjectId (category/section)
+    type: String,
     default: ''
   }
 }, {
