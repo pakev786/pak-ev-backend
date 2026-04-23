@@ -19,6 +19,7 @@ import voucherRoutes from "./routes/voucherRoutes.js";
 import adminAuthRoutes from "./routes/adminAuthRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import evRoutes from "./routes/evRoutes.js";
+import branchRoutes from "./routes/branchRoutes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -80,6 +81,7 @@ app.use("/api/vouchers", voucherRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/ev", evRoutes); 
+app.use('/api/branches',branchRoutes);
 
 // Use PORT from env or default to 5000
 const PORT = process.env.PORT || 5000;
