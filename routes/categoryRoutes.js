@@ -1,4 +1,5 @@
 import express from "express";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 import Category from "../models/Category.js";
 
 const router = express.Router();
@@ -9,12 +10,12 @@ router.get("/", async (req, res) => {
     const categories = await Category.find({}).sort({ _id: -1 }); 
     res.json(categories);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching categories", error: error.message });
+    res.status(500).json({ message: "Error fetching categories", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Add a new category
-router.post("/", async (req, res) => {
+router.post("/", protectAdmin, async (req, res) => {
   try {
     const { name, inNavbar } = req.body;
 
@@ -44,12 +45,12 @@ router.post("/", async (req, res) => {
 
     res.status(201).json(savedCategory);
   } catch (error) {
-    res.status(500).json({ message: "Error saving category", error: error.message });
+    res.status(500).json({ message: "Error saving category", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: Update a category
-router.put("/:id", async (req, res) => {
+router.put("/:id", protectAdmin, async (req, res) => {
   try {
     const { name, inNavbar } = req.body;
     const { id } = req.params;
@@ -90,12 +91,12 @@ router.put("/:id", async (req, res) => {
 
     res.json(updatedCategory);
   } catch (error) {
-    res.status(500).json({ message: "Error updating category", error: error.message });
+    res.status(500).json({ message: "Error updating category", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // DELETE: Remove a category
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", protectAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const deletedCategory = await Category.findByIdAndDelete(id);
@@ -106,7 +107,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ message: "Category deleted successfully", id });
   } catch (error) {
-    res.status(500).json({ message: "Error deleting category", error: error.message });
+    res.status(500).json({ message: "Error deleting category", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

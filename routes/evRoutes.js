@@ -7,8 +7,16 @@ import EVRange from "../models/EVRange.js";
 import EVFeaturedConfig from '../models/EVFeaturedConfig.js';
 import Product from '../models/Product.js';
 import LoadFeaturedConfig from '../models/LoadFeaturedConfig.js';
+import { protectAdmin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
+
+const handleServerError = (res, error, message) => {
+    res.status(500).json({ 
+        message, 
+        error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message 
+    });
+};
 
 router.get("/chargers", async (req, res) => res.json(await EVCharger.find()));
 router.get("/batteries", async (req, res) => res.json(await EVBattery.find().populate('chargers')));
@@ -25,47 +33,53 @@ router.get("/bikes", async (req, res) => res.json(await EVBike.find().populate({
 })));
 router.get("/ranges", async (req, res) => res.json(await EVRange.find().populate('kit').populate('battery')));
 
-router.post("/chargers", async (req, res) => {
-    try { res.status(201).json(await new EVCharger(req.body).save()); } catch (e) { res.status(500).json(e); }
+router.post("/chargers", protectAdmin, async (req, res) => {
+    try { res.status(201).json(await new EVCharger(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating charger"); }
 });
-router.post("/batteries", async (req, res) => {
-    try { res.status(201).json(await new EVBattery(req.body).save()); } catch (e) { res.status(500).json(e); }
+router.post("/batteries", protectAdmin, async (req, res) => {
+    try { res.status(201).json(await new EVBattery(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating battery"); }
 });
-router.post("/kits", async (req, res) => {
-    try { res.status(201).json(await new EVKit(req.body).save()); } catch (e) { res.status(500).json(e); }
+router.post("/kits", protectAdmin, async (req, res) => {
+    try { res.status(201).json(await new EVKit(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating kit"); }
 });
-router.post("/bikes", async (req, res) => {
-    try { res.status(201).json(await new EVBike(req.body).save()); } catch (e) { res.status(500).json(e); }
+router.post("/bikes", protectAdmin, async (req, res) => {
+    try { res.status(201).json(await new EVBike(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating bike"); }
 });
-router.post("/ranges", async (req, res) => {
-    try { res.status(201).json(await new EVRange(req.body).save()); } catch (e) { res.status(500).json(e); }
-});
-
-router.put("/chargers/:id", async (req, res) => {
-    try { res.json(await EVCharger.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { res.status(500).json(e); }
-});
-router.put("/batteries/:id", async (req, res) => {
-    try { res.json(await EVBattery.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { res.status(500).json(e); }
-});
-router.put("/kits/:id", async (req, res) => {
-    try { res.json(await EVKit.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { res.status(500).json(e); }
-});
-router.put("/bikes/:id", async (req, res) => {
-    try { res.json(await EVBike.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { res.status(500).json(e); }
-});
-router.put("/ranges/:id", async (req, res) => {
-    try { res.json(await EVRange.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { res.status(500).json(e); }
+router.post("/ranges", protectAdmin, async (req, res) => {
+    try { res.status(201).json(await new EVRange(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating range"); }
 });
 
-router.delete("/chargers/:id", async (req, res) => { await EVCharger.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
-router.delete("/batteries/:id", async (req, res) => { await EVBattery.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
-router.delete("/kits/:id", async (req, res) => { await EVKit.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
-router.delete("/bikes/:id", async (req, res) => { await EVBike.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
-router.delete("/ranges/:id", async (req, res) => { await EVRange.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); });
+router.put("/chargers/:id", protectAdmin, async (req, res) => {
+    try { res.json(await EVCharger.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating charger"); }
+});
+router.put("/batteries/:id", protectAdmin, async (req, res) => {
+    try { res.json(await EVBattery.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating battery"); }
+});
+router.put("/kits/:id", protectAdmin, async (req, res) => {
+    try { res.json(await EVKit.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating kit"); }
+});
+router.put("/bikes/:id", protectAdmin, async (req, res) => {
+    try { res.json(await EVBike.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating bike"); }
+});
+router.put("/ranges/:id", protectAdmin, async (req, res) => {
+    try { res.json(await EVRange.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating range"); }
+});
 
-
-
-
+router.delete("/chargers/:id", protectAdmin, async (req, res) => { 
+    try { await EVCharger.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting charger"); }
+});
+router.delete("/batteries/:id", protectAdmin, async (req, res) => { 
+    try { await EVBattery.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting battery"); }
+});
+router.delete("/kits/:id", protectAdmin, async (req, res) => { 
+    try { await EVKit.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting kit"); }
+});
+router.delete("/bikes/:id", protectAdmin, async (req, res) => { 
+    try { await EVBike.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting bike"); }
+});
+router.delete("/ranges/:id", protectAdmin, async (req, res) => { 
+    try { await EVRange.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting range"); }
+});
 
 router.get('/featured-products', async (req, res) => {
   try {
@@ -81,13 +95,12 @@ router.get('/featured-products', async (req, res) => {
 
     res.json(products);
   } catch (error) {
-    console.error("Error fetching featured EV products:", error);
-    res.status(500).json({ message: "Server Error" });
+    handleServerError(res, error, "Error fetching featured EV products");
   }
 });
 
 
-router.post('/featured-products', async (req, res) => {
+router.post('/featured-products', protectAdmin, async (req, res) => {
   const { productIds } = req.body;
 
   try {
@@ -102,8 +115,7 @@ router.post('/featured-products', async (req, res) => {
 
     res.status(200).json({ message: "Featured products updated", config });
   } catch (error) {
-    console.error("Error saving featured EV products:", error);
-    res.status(500).json({ message: "Server Error" });
+    handleServerError(res, error, "Error saving featured EV products");
   }
 });
 
@@ -113,11 +125,11 @@ router.get('/load-featured-products', async (req, res) => {
     const config = await LoadFeaturedConfig.findOne().populate('productIds');
     res.json(config ? config.productIds : []);
   } catch (error) {
-    res.status(500).json({ message: "Server Error" });
+    handleServerError(res, error, "Error loading featured products");
   }
 });
 
-router.post('/load-featured-products', async (req, res) => {
+router.post('/load-featured-products', protectAdmin, async (req, res) => {
   const { productIds } = req.body;
   try {
     let config = await LoadFeaturedConfig.findOne();
@@ -129,7 +141,7 @@ router.post('/load-featured-products', async (req, res) => {
     }
     res.status(200).json({ message: "Load Featured products updated", config });
   } catch (error) {
-    res.status(500).json({ message: "Server Error" });
+    handleServerError(res, error, "Error saving load featured products");
   }
 });
 

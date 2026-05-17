@@ -1,4 +1,5 @@
 import express from "express";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 import Branch from "../models/Branch.js";
 
 const router = express.Router();
@@ -9,23 +10,23 @@ router.get('/', async (req, res) => {
     const branches = await Branch.find();
     res.status(200).json(branches);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching branches', error: error.message });
+    res.status(500).json({ message: 'Error fetching branches', error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST a new branch (Admin)
-router.post('/', async (req, res) => {
+router.post('/', protectAdmin, async (req, res) => {
   try {
     const newBranch = new Branch(req.body);
     const savedBranch = await newBranch.save();
     res.status(201).json(savedBranch);
   } catch (error) {
-    res.status(500).json({ message: 'Error creating branch', error: error.message });
+    res.status(500).json({ message: 'Error creating branch', error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT update a branch (Admin)
-router.put('/:id', async (req, res) => {
+router.put('/:id', protectAdmin, async (req, res) => {
   try {
     const updatedBranch = await Branch.findByIdAndUpdate(
       req.params.id, 
@@ -34,17 +35,17 @@ router.put('/:id', async (req, res) => {
     );
     res.status(200).json(updatedBranch);
   } catch (error) {
-    res.status(500).json({ message: 'Error updating branch', error: error.message });
+    res.status(500).json({ message: 'Error updating branch', error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // DELETE a branch (Admin)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', protectAdmin, async (req, res) => {
   try {
     await Branch.findByIdAndDelete(req.params.id);
     res.status(200).json({ message: 'Branch deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting branch', error: error.message });
+    res.status(500).json({ message: 'Error deleting branch', error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

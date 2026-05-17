@@ -9,6 +9,7 @@ import Warranty from "../models/Warranty.js";
 import Setting from "../models/Setting.js"; 
 import User from "../models/User.js"; 
 import Chat from "../models/Chat.js"; 
+import { protectAdmin, protectUser } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -89,7 +90,7 @@ const createWarranties = async (order, startDate) => {
 };
 
 // GET: Fetch ALL orders
-router.get("/", async (req, res) => {
+router.get("/", protectAdmin, async (req, res) => {
   try {
     const now = new Date();
     const expiredOrders = await Order.find({
@@ -109,24 +110,24 @@ router.get("/", async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching orders", error: error.message });
+    res.status(500).json({ message: "Error fetching orders", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // GET: Fetch orders by User ID
-router.get("/user/:userId", async (req, res) => {
+router.get("/user/:userId", protectUser, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.params.userId })
       .populate('bankAccount', 'bankName')
       .sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching user orders", error: error.message });
+    res.status(500).json({ message: "Error fetching user orders", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: Update Order Status
-router.put("/:id/status", async (req, res) => {
+router.put("/:id/status", protectAdmin, async (req, res) => {
   try {
     const { status } = req.body;
     const validStatuses = ['Non Verified', 'Verified', 'Delivered', 'Declined'];
@@ -160,12 +161,12 @@ router.put("/:id/status", async (req, res) => {
     res.json(order);
   } catch (error) {
     console.error("Update Error:", error);
-    res.status(500).json({ message: "Error updating order", error: error.message });
+    res.status(500).json({ message: "Error updating order", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: Update Order DELIVERY PROOF (Admin) - CHANGED
-router.put("/:id/delivery-proof", upload.single('receipt'), async (req, res) => {
+router.put("/:id/delivery-proof", protectAdmin, upload.single('receipt'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "Receipt file is required" });
@@ -195,12 +196,12 @@ router.put("/:id/delivery-proof", upload.single('receipt'), async (req, res) => 
 
   } catch (error) {
     if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ message: "Error updating delivery proof", error: error.message });
+    res.status(500).json({ message: "Error updating delivery proof", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Create new order
-router.post("/", upload.single('paymentScreenshot'), async (req, res) => {
+router.post("/", protectUser, upload.single('paymentScreenshot'), async (req, res) => {
   try {
     const { 
       user, products, totalCost, onlinePaid, codAmount, bankAccount, deliveryTime,
@@ -243,7 +244,7 @@ router.post("/", upload.single('paymentScreenshot'), async (req, res) => {
 
   } catch (error) {
     if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ message: "Error processing order", error: error.message });
+    res.status(500).json({ message: "Error processing order", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

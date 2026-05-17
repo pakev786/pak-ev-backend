@@ -1,6 +1,7 @@
 import express from "express";
 import Review from "../models/Review.js";
 import Order from "../models/Order.js";
+import { protectUser } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.get("/product/:productId", async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(reviews);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching reviews", error: error.message });
+    res.status(500).json({ message: "Error fetching reviews", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -46,12 +47,12 @@ router.get("/check-eligibility/:productId/:userId", async (req, res) => {
 
     res.json({ canReview: true, orderId: order._id });
   } catch (error) {
-    res.status(500).json({ message: "Error checking eligibility", error: error.message });
+    res.status(500).json({ message: "Error checking eligibility", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Submit a review
-router.post("/", async (req, res) => {
+router.post("/", protectUser, async (req, res) => {
   try {
     const { user, product, order, rating, comment } = req.body;
 
@@ -89,7 +90,7 @@ router.post("/", async (req, res) => {
     res.status(201).json(savedReview);
 
   } catch (error) {
-    res.status(500).json({ message: "Error saving review", error: error.message });
+    res.status(500).json({ message: "Error saving review", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

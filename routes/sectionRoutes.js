@@ -1,4 +1,5 @@
 import express from "express";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 import Section from "../models/Section.js";
 
 const router = express.Router();
@@ -9,12 +10,12 @@ router.get("/", async (req, res) => {
     const sections = await Section.find({}).sort({ order: 1 });
     res.json(sections);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching sections", error: error.message });
+    res.status(500).json({ message: "Error fetching sections", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Add a new section
-router.post("/", async (req, res) => {
+router.post("/", protectAdmin, async (req, res) => {
   try {
     const { name, isMarquee } = req.body;
     if (!name) return res.status(400).json({ message: "Name is required" });
@@ -31,12 +32,12 @@ router.post("/", async (req, res) => {
 
     res.status(201).json(savedSection);
   } catch (error) {
-    res.status(500).json({ message: "Error creating section", error: error.message });
+    res.status(500).json({ message: "Error creating section", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: Reorder sections
-router.put("/reorder", async (req, res) => {
+router.put("/reorder", protectAdmin, async (req, res) => {
   try {
     const { orderedIds } = req.body; 
 
@@ -55,12 +56,12 @@ router.put("/reorder", async (req, res) => {
 
     res.json({ message: "Sections reordered successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error reordering sections", error: error.message });
+    res.status(500).json({ message: "Error reordering sections", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: Update a section
-router.put("/:id", async (req, res) => {
+router.put("/:id", protectAdmin, async (req, res) => {
   try {
     const { name, isMarquee } = req.body;
     const { id } = req.params;
@@ -79,18 +80,18 @@ router.put("/:id", async (req, res) => {
 
     res.json(updatedSection);
   } catch (error) {
-    res.status(500).json({ message: "Error updating section", error: error.message });
+    res.status(500).json({ message: "Error updating section", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // DELETE: Remove a section
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", protectAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     await Section.findByIdAndDelete(id);
     res.json({ message: "Section deleted successfully", id });
   } catch (error) {
-    res.status(500).json({ message: "Error deleting section", error: error.message });
+    res.status(500).json({ message: "Error deleting section", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

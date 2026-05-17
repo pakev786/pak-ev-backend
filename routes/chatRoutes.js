@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import Chat from "../models/Chat.js";
 import User from "../models/User.js";
+import { protectAdmin, protectUser } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -34,7 +35,7 @@ const upload = multer({
 });
 
 // GET: Get list of users who have started a chat (For Admin)
-router.get("/users", async (req, res) => {
+router.get("/users", protectAdmin, async (req, res) => {
   try {
     const senderIds = await Chat.distinct("sender", { receiver: "ADMIN" });
     const receiverIds = await Chat.distinct("receiver", { sender: "ADMIN" });
@@ -43,12 +44,12 @@ router.get("/users", async (req, res) => {
     const users = await User.find({ _id: { $in: userIds } }).select('name email phone');
     res.json(users);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching chat users", error: error.message });
+    res.status(500).json({ message: "Error fetching chat users", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // GET: Get conversation history
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", protectUser, async (req, res) => {
   try {
     const { userId } = req.params;
     const messages = await Chat.find({
@@ -60,12 +61,12 @@ router.get("/:userId", async (req, res) => {
     
     res.json(messages);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching messages", error: error.message });
+    res.status(500).json({ message: "Error fetching messages", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Send a message (with optional file)
-router.post("/", upload.single('attachment'), async (req, res) => {
+router.post("/", protectUser, upload.single('attachment'), async (req, res) => {
   try {
     const { sender, receiver, message } = req.body;
     
@@ -94,7 +95,7 @@ router.post("/", upload.single('attachment'), async (req, res) => {
   } catch (error) {
     // Cleanup file if DB save fails
     if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ message: "Error sending message", error: error.message });
+    res.status(500).json({ message: "Error sending message", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

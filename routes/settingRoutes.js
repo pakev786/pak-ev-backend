@@ -1,4 +1,5 @@
 import express from "express";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 import Setting from "../models/Setting.js";
 
 const router = express.Router();
@@ -11,12 +12,12 @@ router.get("/whatsapp", async (req, res) => {
     const setting = await Setting.findOne({ key: 'whatsapp' });
     res.json({ number: setting ? setting.value : '' });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching setting", error: error.message });
+    res.status(500).json({ message: "Error fetching setting", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: WhatsApp
-router.put("/whatsapp", async (req, res) => {
+router.put("/whatsapp", protectAdmin, async (req, res) => {
   try {
     const { number } = req.body;
     const setting = await Setting.findOneAndUpdate(
@@ -26,7 +27,7 @@ router.put("/whatsapp", async (req, res) => {
     );
     res.json({ number: setting.value });
   } catch (error) {
-    res.status(500).json({ message: "Error updating setting", error: error.message });
+    res.status(500).json({ message: "Error updating setting", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -36,12 +37,12 @@ router.get("/email", async (req, res) => {
     const setting = await Setting.findOne({ key: 'admin_email' });
     res.json({ email: setting ? setting.value : '' });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching email setting", error: error.message });
+    res.status(500).json({ message: "Error fetching email setting", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: Admin Email
-router.put("/email", async (req, res) => {
+router.put("/email", protectAdmin, async (req, res) => {
   try {
     const { email } = req.body;
     const setting = await Setting.findOneAndUpdate(
@@ -51,7 +52,7 @@ router.put("/email", async (req, res) => {
     );
     res.json({ email: setting.value });
   } catch (error) {
-    res.status(500).json({ message: "Error updating email setting", error: error.message });
+    res.status(500).json({ message: "Error updating email setting", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

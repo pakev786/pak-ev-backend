@@ -5,6 +5,7 @@ import fs from "fs";
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import Section from "../models/Section.js";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -50,18 +51,22 @@ router.get("/search", async (req, res) => {
     try {
         const { q } = req.query;
         if (!q) return res.json([]);
-        const fuzzy = q.split('').join('.*');
+        const escapeRegex = (string) => {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        };
+        const safeQ = escapeRegex(q);
+        const fuzzy = safeQ.split('').join('.*');
         const regex = new RegExp(fuzzy, 'i');
         const products = await Product.find({
           $or: [
             { title: { $regex: regex } },
             { description: { $regex: regex } },
-            { title: { $regex: q, $options: 'i' } }
+            { title: { $regex: safeQ, $options: 'i' } }
           ]
         }).populate('category', 'name').sort({ createdAt: -1 });
         res.json(products);
       } catch (error) {
-        res.status(500).json({ message: "Error searching products", error: error.message });
+        res.status(500).json({ message: "Error searching products", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
       }
 });
 
@@ -74,12 +79,12 @@ router.get("/", async (req, res) => {
           .sort({ createdAt: -1 });
         res.json(products);
       } catch (error) {
-        res.status(500).json({ message: "Error fetching products", error: error.message });
+        res.status(500).json({ message: "Error fetching products", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
       }
 });
 
 // UPDATE: Added youtubeLink to POST
-router.post("/", cpUpload, async (req, res) => {
+router.post("/", protectAdmin, cpUpload, async (req, res) => {
   try {
     const { 
       title, description, price, optionalPrice, category, section, codAvailable, isAvailable,
@@ -132,12 +137,12 @@ router.post("/", cpUpload, async (req, res) => {
       if (req.files['extraImages']) req.files['extraImages'].forEach(file => fs.unlinkSync(file.path));
     }
     console.error("Error in POST /api/products:", error);
-    res.status(500).json({ message: "Error saving product", error: error.message });
+    res.status(500).json({ message: "Error saving product", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // UPDATE: Added youtubeLink to PUT
-router.put("/:id", cpUpload, async (req, res) => {
+router.put("/:id", protectAdmin, cpUpload, async (req, res) => {
   try {
     const { 
       title, description, price, optionalPrice, category, section, codAvailable, isAvailable,
@@ -197,12 +202,12 @@ router.put("/:id", cpUpload, async (req, res) => {
 
   } catch (error) {
     console.error("Error in PUT /api/products:", error);
-    res.status(500).json({ message: "Error updating product", error: error.message });
+    res.status(500).json({ message: "Error updating product", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // --- NEW ROUTE: DELETE SPECIFIC IMAGE ---
-router.delete("/:id/images", async (req, res) => {
+router.delete("/:id/images", protectAdmin, async (req, res) => {
     try {
         const { imageUrl, type } = req.body; // type: 'cover' or 'extra'
         const product = await Product.findById(req.params.id);
@@ -211,9 +216,14 @@ router.delete("/:id/images", async (req, res) => {
 
         // Helper to remove file from FS
         const removeFile = (urlPath) => {
+            if (!urlPath || typeof urlPath !== 'string') return;
             const cleanPath = urlPath.startsWith('/') ? urlPath.substring(1) : urlPath;
+            if (cleanPath.includes('..')) return;
+            
             const fullPath = path.resolve(cleanPath);
-            if (fs.existsSync(fullPath)) {
+            const uploadsDir = path.resolve('uploads');
+            
+            if (fullPath.startsWith(uploadsDir) && fs.existsSync(fullPath)) {
                 fs.unlinkSync(fullPath);
             }
         };
@@ -237,12 +247,12 @@ router.delete("/:id/images", async (req, res) => {
 
     } catch (error) {
         console.error("Error deleting image:", error);
-        res.status(500).json({ message: "Error deleting image", error: error.message });
+        res.status(500).json({ message: "Error deleting image", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
 // ... (Keep DELETE product route as is) ...
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", protectAdmin, async (req, res) => {
     // ... (Keep existing code)
     try {
         const product = await Product.findById(req.params.id);
@@ -251,25 +261,28 @@ router.delete("/:id", async (req, res) => {
           return res.status(404).json({ message: "Product not found" });
         }
     
-        if (product.image) {
-          const cleanPath = product.image.startsWith('/') ? product.image.substring(1) : product.image;
-          const fullPath = path.resolve(cleanPath);
-          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-        }
+        const safeDeleteFile = (filePath) => {
+            if (!filePath || typeof filePath !== 'string') return;
+            const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+            if (cleanPath.includes('..')) return;
+            const fullPath = path.resolve(cleanPath);
+            const uploadsDir = path.resolve('uploads');
+            if (fullPath.startsWith(uploadsDir) && fs.existsSync(fullPath)) {
+                fs.unlinkSync(fullPath);
+            }
+        };
+
+        if (product.image) safeDeleteFile(product.image);
     
         if (product.extraImages && product.extraImages.length > 0) {
-          product.extraImages.forEach(img => {
-            const cleanPath = img.startsWith('/') ? img.substring(1) : img;
-            const fullPath = path.resolve(cleanPath);
-            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-          });
+          product.extraImages.forEach(img => safeDeleteFile(img));
         }
     
         await Product.deleteOne({ _id: product._id });
         res.json({ message: "Product deleted" });
     
       } catch (error) {
-        res.status(500).json({ message: "Error deleting product", error: error.message });
+        res.status(500).json({ message: "Error deleting product", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
       }
 });
 

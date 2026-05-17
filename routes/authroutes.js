@@ -2,6 +2,7 @@ import express from "express";
 import nodemailer from "nodemailer";
 import axios from "axios";
 import User from "../models/User.js";
+import generateToken from "../utils/generateToken.js";
 
 const router = express.Router();
 
@@ -90,7 +91,7 @@ router.post("/register", async (req, res) => {
     res.status(201).json({ message: "OTP sent to your email" });
 
   } catch (error) {
-    res.status(500).json({ message: "Registration failed", error: error.message });
+    res.status(500).json({ message: "Registration failed", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -112,11 +113,11 @@ router.post("/verify-otp", async (req, res) => {
       name: user.name,
       email: user.email,
       isAdmin: user.isAdmin,
-      token: "simulated-jwt-token" 
+      token: generateToken(user._id) 
     });
 
   } catch (error) {
-    res.status(500).json({ message: "Verification failed", error: error.message });
+    res.status(500).json({ message: "Verification failed", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -128,18 +129,34 @@ router.post("/login", async (req, res) => {
 
     if (!user) return res.status(404).json({ message: "User not found" });
     if (!user.isVerified) return res.status(400).json({ message: "Account not verified" });
-    if (user.password !== password) return res.status(401).json({ message: "Invalid password" });
+
+    // Check if password matches (either hashed or legacy plaintext)
+    let isMatch = false;
+    if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+        // It's a hash
+        isMatch = await user.matchPassword(password);
+    } else {
+        // It's legacy plaintext
+        isMatch = user.password === password;
+        if (isMatch) {
+            // Migrate to hash for next time
+            user.password = password;
+            await user.save();
+        }
+    }
+
+    if (!isMatch) return res.status(401).json({ message: "Invalid password" });
 
     res.json({
       id: user.id,
       name: user.name,
       email: user.email,
       isAdmin: user.isAdmin,
-      token: "simulated-jwt-token"
+      token: generateToken(user._id)
     });
 
   } catch (error) {
-    res.status(500).json({ message: "Login failed", error: error.message });
+    res.status(500).json({ message: "Login failed", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -159,7 +176,7 @@ router.post("/forgot-password", async (req, res) => {
     res.json({ message: "OTP sent to email" });
 
   } catch (error) {
-    res.status(500).json({ message: "Failed to process request", error: error.message });
+    res.status(500).json({ message: "Failed to process request", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -179,7 +196,7 @@ router.post("/reset-password", async (req, res) => {
     res.json({ message: "Password reset successfully" });
 
   } catch (error) {
-    res.status(500).json({ message: "Failed to reset password", error: error.message });
+    res.status(500).json({ message: "Failed to reset password", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -196,10 +213,12 @@ router.post("/google", async (req, res) => {
 
     if (!user) {
       // Create new user (automatically verified)
+      // For Google users, we set a long random password as they use Google to login
+      const randomPassword = Math.random().toString(36).slice(-10) + sub.slice(-10);
       user = new User({
         name: name || "Google User",
         email,
-        password: `google_${sub}`, // Dummy pass
+        password: randomPassword, 
         isVerified: true
       });
       await user.save();
@@ -210,12 +229,12 @@ router.post("/google", async (req, res) => {
       name: user.name,
       email: user.email,
       isAdmin: user.isAdmin,
-      token: "simulated-jwt-token"
+      token: generateToken(user._id)
     });
 
   } catch (error) {
     console.error("Google Auth Error:", error.response?.data || error.message);
-    res.status(500).json({ message: "Google auth failed", error: error.message });
+    res.status(500).json({ message: "Google auth failed", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

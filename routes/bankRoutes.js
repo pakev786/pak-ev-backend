@@ -1,4 +1,5 @@
 import express from "express";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 import BankAccount from "../models/BankAccount.js";
 
 const router = express.Router();
@@ -9,12 +10,12 @@ router.get("/", async (req, res) => {
     const accounts = await BankAccount.find({});
     res.json(accounts);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching accounts", error: error.message });
+    res.status(500).json({ message: "Error fetching accounts", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Add a new bank account
-router.post("/", async (req, res) => {
+router.post("/", protectAdmin, async (req, res) => {
   try {
     const { bankName, accountHolderName, accountNumber, iban } = req.body;
 
@@ -32,17 +33,17 @@ router.post("/", async (req, res) => {
     const savedAccount = await account.save();
     res.status(201).json(savedAccount);
   } catch (error) {
-    res.status(500).json({ message: "Error saving account", error: error.message });
+    res.status(500).json({ message: "Error saving account", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // DELETE: Remove a bank account
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", protectAdmin, async (req, res) => {
   try {
     await BankAccount.findByIdAndDelete(req.params.id);
     res.json({ message: "Account deleted successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error deleting account", error: error.message });
+    res.status(500).json({ message: "Error deleting account", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

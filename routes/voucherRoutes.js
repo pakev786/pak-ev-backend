@@ -1,4 +1,5 @@
 import express from "express";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 import Voucher from "../models/Voucher.js";
 
 const router = express.Router();
@@ -9,12 +10,12 @@ router.get("/", async (req, res) => {
     const vouchers = await Voucher.find({}).sort({ createdAt: -1 });
     res.json(vouchers);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching vouchers", error: error.message });
+    res.status(500).json({ message: "Error fetching vouchers", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Create Voucher
-router.post("/", async (req, res) => {
+router.post("/", protectAdmin, async (req, res) => {
   try {
     const { code, discountType, value, applicability, targetId, minOrderValue, isActive } = req.body;
     
@@ -36,12 +37,12 @@ router.post("/", async (req, res) => {
     const savedVoucher = await voucher.save();
     res.status(201).json(savedVoucher);
   } catch (error) {
-    res.status(500).json({ message: "Error creating voucher", error: error.message });
+    res.status(500).json({ message: "Error creating voucher", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // PUT: Update Voucher
-router.put("/:id", async (req, res) => {
+router.put("/:id", protectAdmin, async (req, res) => {
   try {
     const { code, discountType, value, applicability, targetId, minOrderValue, isActive } = req.body;
     
@@ -63,17 +64,17 @@ router.put("/:id", async (req, res) => {
     res.json(updatedVoucher);
 
   } catch (error) {
-    res.status(500).json({ message: "Error updating voucher", error: error.message });
+    res.status(500).json({ message: "Error updating voucher", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // DELETE: Remove Voucher
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", protectAdmin, async (req, res) => {
   try {
     await Voucher.findByIdAndDelete(req.params.id);
     res.json({ message: "Voucher deleted successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error deleting voucher", error: error.message });
+    res.status(500).json({ message: "Error deleting voucher", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
@@ -89,7 +90,7 @@ router.post("/validate", async (req, res) => {
 
     res.json(voucher);
   } catch (error) {
-    res.status(500).json({ message: "Error validating voucher", error: error.message });
+    res.status(500).json({ message: "Error validating voucher", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 

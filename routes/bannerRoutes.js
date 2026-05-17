@@ -1,4 +1,5 @@
 import express from "express";
+import { protectAdmin } from "../middleware/authMiddleware.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -42,12 +43,12 @@ router.get("/", async (req, res) => {
     });
     res.json(bannerMap);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching banners", error: error.message });
+    res.status(500).json({ message: "Error fetching banners", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
 // POST: Update specific slot (Image + Link Data)
-router.post("/:slot", upload.single('image'), async (req, res) => {
+router.post("/:slot", protectAdmin, upload.single('image'), async (req, res) => {
   try {
     const { slot } = req.params;
     const { linkType, linkValue, title } = req.body;
@@ -95,7 +96,7 @@ router.post("/:slot", upload.single('image'), async (req, res) => {
 
   } catch (error) {
     if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ message: "Error saving banner", error: error.message });
+    res.status(500).json({ message: "Error saving banner", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
   }
 });
 
