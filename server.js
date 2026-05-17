@@ -29,14 +29,18 @@ const app = express();
 
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',') 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
   : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
 app.use(cors({
     origin: function(origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
             callback(null, true);
         } else {
+            console.error(`❌ CORS blocked origin: ${origin}. Add this to ALLOWED_ORIGINS env var.`);
             callback(new Error('Not allowed by CORS'));
         }
     },
