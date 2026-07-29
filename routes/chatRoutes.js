@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import Chat from "../models/Chat.js";
 import User from "../models/User.js";
-import { protectAdmin, protectUser } from "../middleware/authMiddleware.js";
+import { protectAdmin, protectUser, protectUserOrAdmin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -49,7 +49,7 @@ router.get("/users", protectAdmin, async (req, res) => {
 });
 
 // GET: Get conversation history
-router.get("/:userId", protectUser, async (req, res) => {
+router.get("/:userId", protectUserOrAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const messages = await Chat.find({
@@ -66,7 +66,7 @@ router.get("/:userId", protectUser, async (req, res) => {
 });
 
 // POST: Send a message (with optional file)
-router.post("/", protectUser, upload.single('attachment'), async (req, res) => {
+router.post("/", protectUserOrAdmin, upload.single('attachment'), async (req, res) => {
   try {
     const { sender, receiver, message } = req.body;
     
