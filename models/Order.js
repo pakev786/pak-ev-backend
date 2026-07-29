@@ -50,6 +50,14 @@ const orderSchema = mongoose.Schema({
     type: String,
     required: true
   },
+  recipientName: {
+    type: String,
+    required: true
+  },
+  postalCode: {
+    type: String,
+    required: true
+  },
   contactNumber: {
     type: String,
     required: true
