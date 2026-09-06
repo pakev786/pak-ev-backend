@@ -1,6 +1,7 @@
 import express from "express";
-import { protectAdmin } from "../middleware/authMiddleware.js";
+import { protectAdmin, requirePermission } from "../middleware/authMiddleware.js";
 import Branch from "../models/Branch.js";
+import { isValidObjectId } from "../utils/validate.js";
 
 const router = express.Router();
 
@@ -15,9 +16,10 @@ router.get('/', async (req, res) => {
 });
 
 // POST a new branch (Admin)
-router.post('/', protectAdmin, async (req, res) => {
+router.post('/', protectAdmin, requirePermission('branches'), async (req, res) => {
   try {
-    const newBranch = new Branch(req.body);
+    const { city, holder, phone, address } = req.body;
+    const newBranch = new Branch({ city, holder, phone, address });
     const savedBranch = await newBranch.save();
     res.status(201).json(savedBranch);
   } catch (error) {
@@ -26,12 +28,21 @@ router.post('/', protectAdmin, async (req, res) => {
 });
 
 // PUT update a branch (Admin)
-router.put('/:id', protectAdmin, async (req, res) => {
+router.put('/:id', protectAdmin, requirePermission('branches'), async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid branch id' });
+
+    const { city, holder, phone, address } = req.body;
+    const update = {};
+    if (city !== undefined) update.city = city;
+    if (holder !== undefined) update.holder = holder;
+    if (phone !== undefined) update.phone = phone;
+    if (address !== undefined) update.address = address;
+
     const updatedBranch = await Branch.findByIdAndUpdate(
-      req.params.id, 
-      req.body, 
-      { new: true }
+      req.params.id,
+      update,
+      { new: true, runValidators: true }
     );
     res.status(200).json(updatedBranch);
   } catch (error) {
@@ -40,8 +51,9 @@ router.put('/:id', protectAdmin, async (req, res) => {
 });
 
 // DELETE a branch (Admin)
-router.delete('/:id', protectAdmin, async (req, res) => {
+router.delete('/:id', protectAdmin, requirePermission('branches'), async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid branch id' });
     await Branch.findByIdAndDelete(req.params.id);
     res.status(200).json({ message: 'Branch deleted successfully' });
   } catch (error) {

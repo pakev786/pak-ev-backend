@@ -1,11 +1,13 @@
 import express from "express";
-import { protectAdmin } from "../middleware/authMiddleware.js";
+import { protectAdmin, protectUserOrAdmin, requirePermission } from "../middleware/authMiddleware.js";
 import Voucher from "../models/Voucher.js";
+import { isNonEmptyString, isValidObjectId, asString, toFiniteNumber } from "../utils/validate.js";
 
 const router = express.Router();
 
-// GET: Fetch all vouchers
-router.get("/", async (req, res) => {
+// GET: Fetch all vouchers (admin dashboard only - the public endpoint below
+// validates a single code instead of handing out every active discount).
+router.get("/", protectAdmin, requirePermission("vouchers"), async (req, res) => {
   try {
     const vouchers = await Voucher.find({}).sort({ createdAt: -1 });
     res.json(vouchers);
@@ -15,23 +17,40 @@ router.get("/", async (req, res) => {
 });
 
 // POST: Create Voucher
-router.post("/", protectAdmin, async (req, res) => {
+router.post("/", protectAdmin, requirePermission("vouchers"), async (req, res) => {
   try {
-    const { code, discountType, value, applicability, targetId, minOrderValue, isActive } = req.body;
-    
-    const existing = await Voucher.findOne({ code: code.toUpperCase() });
+        const { code, discountType, value, applicability, targetId, minOrderValue, isActive } = req.body;
+
+    if (!isNonEmptyString(code) || code.trim().length > 40) {
+      return res.status(400).json({ message: "Voucher code is required" });
+    }
+    if (!['fixed', 'percentage'].includes(discountType)) {
+      return res.status(400).json({ message: "Invalid discount type" });
+    }
+    const numericValue = toFiniteNumber(value);
+    if (numericValue === null || numericValue <= 0 || (discountType === 'percentage' && numericValue > 100)) {
+      return res.status(400).json({ message: "Invalid discount value" });
+    }
+    if (applicability !== undefined && !['all', 'category', 'section'].includes(applicability)) {
+      return res.status(400).json({ message: "Invalid applicability" });
+    }
+    if (applicability && applicability !== 'all' && !isValidObjectId(targetId)) {
+      return res.status(400).json({ message: "A valid target is required" });
+    }
+
+    const existing = await Voucher.findOne({ code: asString(code).toUpperCase() });
     if (existing) {
       return res.status(400).json({ message: "Voucher code already exists" });
     }
 
-    const voucher = new Voucher({
-      code,
+        const voucher = new Voucher({
+      code: asString(code).toUpperCase(),
       discountType,
-      value,
+      value: numericValue,
       applicability,
-      targetId: targetId || null,
-      minOrderValue: minOrderValue || 0,
-      isActive: isActive !== undefined ? isActive : true
+      targetId: applicability && applicability !== 'all' ? asString(targetId) : null,
+      minOrderValue: Math.max(0, toFiniteNumber(minOrderValue) || 0),
+      isActive: isActive !== undefined ? isActive === true || isActive === 'true' : true
     });
 
     const savedVoucher = await voucher.save();
@@ -42,13 +61,30 @@ router.post("/", protectAdmin, async (req, res) => {
 });
 
 // PUT: Update Voucher
-router.put("/:id", protectAdmin, async (req, res) => {
+router.put("/:id", protectAdmin, requirePermission("vouchers"), async (req, res) => {
   try {
-    const { code, discountType, value, applicability, targetId, minOrderValue, isActive } = req.body;
-    
+        const { code, discountType, value, applicability, targetId, minOrderValue, isActive } = req.body;
+
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid voucher id" });
+    if (code !== undefined && (!isNonEmptyString(code) || code.trim().length > 40)) {
+      return res.status(400).json({ message: "Invalid voucher code" });
+    }
+    if (discountType !== undefined && !['fixed', 'percentage'].includes(discountType)) {
+      return res.status(400).json({ message: "Invalid discount type" });
+    }
+    if (value !== undefined) {
+      const numericValue = toFiniteNumber(value);
+      if (numericValue === null || numericValue <= 0 || (discountType === 'percentage' && numericValue > 100)) {
+        return res.status(400).json({ message: "Invalid discount value" });
+      }
+    }
+    if (applicability !== undefined && !['all', 'category', 'section'].includes(applicability)) {
+      return res.status(400).json({ message: "Invalid applicability" });
+    }
+
     // Check code uniqueness if changing code
     if (code) {
-      const existing = await Voucher.findOne({ code: code.toUpperCase(), _id: { $ne: req.params.id } });
+      const existing = await Voucher.findOne({ code: asString(code).toUpperCase(), _id: { $ne: req.params.id } });
       if (existing) {
         return res.status(400).json({ message: "Voucher code already exists" });
       }
@@ -69,8 +105,9 @@ router.put("/:id", protectAdmin, async (req, res) => {
 });
 
 // DELETE: Remove Voucher
-router.delete("/:id", protectAdmin, async (req, res) => {
+router.delete("/:id", protectAdmin, requirePermission("vouchers"), async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid voucher id" });
     await Voucher.findByIdAndDelete(req.params.id);
     res.json({ message: "Voucher deleted successfully" });
   } catch (error) {
@@ -79,10 +116,13 @@ router.delete("/:id", protectAdmin, async (req, res) => {
 });
 
 // POST: Validate Voucher (for checkout)
-router.post("/validate", async (req, res) => {
+router.post("/validate", protectUserOrAdmin, async (req, res) => {
   try {
     const { code } = req.body;
-    const voucher = await Voucher.findOne({ code: code.toUpperCase(), isActive: true });
+    if (!isNonEmptyString(code) || code.trim().length > 40) {
+      return res.status(400).json({ message: "Invalid or inactive voucher code" });
+    }
+    const voucher = await Voucher.findOne({ code: asString(code).toUpperCase(), isActive: true });
 
     if (!voucher) {
       return res.status(404).json({ message: "Invalid or inactive voucher code" });

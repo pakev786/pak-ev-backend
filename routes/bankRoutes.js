@@ -1,11 +1,14 @@
 import express from "express";
-import { protectAdmin } from "../middleware/authMiddleware.js";
+import { protectAdmin, protectUserOrAdmin, requirePermission } from "../middleware/authMiddleware.js";
 import BankAccount from "../models/BankAccount.js";
+import { isNonEmptyString, isValidObjectId, asString } from "../utils/validate.js";
 
 const router = express.Router();
 
-// GET: Fetch all bank accounts
-router.get("/", async (req, res) => {
+// GET: Fetch all bank accounts.
+// Account numbers / IBANs are payment details, so they are only handed to
+// signed-in customers (who are about to check out) and to admins.
+router.get("/", protectUserOrAdmin, async (req, res) => {
   try {
     const accounts = await BankAccount.find({});
     res.json(accounts);
@@ -15,19 +18,19 @@ router.get("/", async (req, res) => {
 });
 
 // POST: Add a new bank account
-router.post("/", protectAdmin, async (req, res) => {
+router.post("/", protectAdmin, requirePermission("accounts"), async (req, res) => {
   try {
     const { bankName, accountHolderName, accountNumber, iban } = req.body;
 
-    if (!bankName || !accountHolderName || !accountNumber) {
+    if (!isNonEmptyString(bankName) || !isNonEmptyString(accountHolderName) || !isNonEmptyString(accountNumber)) {
       return res.status(400).json({ message: "Bank Name, Holder Name, and Account Number are required" });
     }
 
     const account = new BankAccount({
-      bankName,
-      accountHolderName,
-      accountNumber,
-      iban
+      bankName: asString(bankName).slice(0, 100),
+      accountHolderName: asString(accountHolderName).slice(0, 100),
+      accountNumber: asString(accountNumber).slice(0, 40),
+      iban: asString(iban).slice(0, 40)
     });
 
     const savedAccount = await account.save();
@@ -38,8 +41,9 @@ router.post("/", protectAdmin, async (req, res) => {
 });
 
 // DELETE: Remove a bank account
-router.delete("/:id", protectAdmin, async (req, res) => {
+router.delete("/:id", protectAdmin, requirePermission("accounts"), async (req, res) => {
   try {
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid account id" });
     await BankAccount.findByIdAndDelete(req.params.id);
     res.json({ message: "Account deleted successfully" });
   } catch (error) {

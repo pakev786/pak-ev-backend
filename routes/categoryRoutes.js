@@ -1,6 +1,7 @@
 import express from "express";
-import { protectAdmin } from "../middleware/authMiddleware.js";
+import { protectAdmin, requirePermission } from "../middleware/authMiddleware.js";
 import Category from "../models/Category.js";
+import { isNonEmptyString, isValidObjectId, escapeRegex, asString } from "../utils/validate.js";
 
 const router = express.Router();
 
@@ -15,17 +16,17 @@ router.get("/", async (req, res) => {
 });
 
 // POST: Add a new category
-router.post("/", protectAdmin, async (req, res) => {
+router.post("/", protectAdmin, requirePermission("categories"), async (req, res) => {
   try {
     const { name, inNavbar } = req.body;
 
-    if (!name) {
+    if (!isNonEmptyString(name) || name.trim().length > 60) {
       return res.status(400).json({ message: "Category name is required" });
     }
 
-    // Check duplicate name
-    const existingCategory = await Category.findOne({ 
-      name: { $regex: new RegExp(`^${name}$`, 'i') } 
+    // Check duplicate name (input is escaped before it becomes a RegExp)
+    const existingCategory = await Category.findOne({
+      name: { $regex: new RegExp(`^${escapeRegex(name)}$`, 'i') }
     });
 
     if (existingCategory) {
@@ -40,7 +41,7 @@ router.post("/", protectAdmin, async (req, res) => {
       }
     }
 
-    const category = new Category({ name, inNavbar: inNavbar || false });
+    const category = new Category({ name: name.trim(), inNavbar: inNavbar === true || inNavbar === 'true' });
     const savedCategory = await category.save();
 
     res.status(201).json(savedCategory);
@@ -50,28 +51,35 @@ router.post("/", protectAdmin, async (req, res) => {
 });
 
 // PUT: Update a category
-router.put("/:id", protectAdmin, async (req, res) => {
+router.put("/:id", protectAdmin, requirePermission("categories"), async (req, res) => {
   try {
     const { name, inNavbar } = req.body;
     const { id } = req.params;
 
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid category id" });
+
     const updateData = {};
-    if (name) updateData.name = name;
-    if (inNavbar !== undefined) updateData.inNavbar = inNavbar;
+    if (name !== undefined) {
+      if (!isNonEmptyString(name) || name.trim().length > 60) {
+        return res.status(400).json({ message: "Invalid category name" });
+      }
+      updateData.name = asString(name);
+    }
+    if (inNavbar !== undefined) updateData.inNavbar = inNavbar === true || inNavbar === 'true';
 
     // Check name duplicate if name is changing
-    if (name) {
-      const existingCategory = await Category.findOne({ 
-        name: { $regex: new RegExp(`^${name}$`, 'i') },
-        _id: { $ne: id } 
+    if (updateData.name) {
+      const existingCategory = await Category.findOne({
+        name: { $regex: new RegExp(`^${escapeRegex(updateData.name)}$`, 'i') },
+        _id: { $ne: id }
       });
       if (existingCategory) {
         return res.status(400).json({ message: "Category with this name already exists" });
       }
     }
 
-    // Check navbar limit if setting to true
-    if (inNavbar === true) {
+        // Check navbar limit if setting to true
+    if (updateData.inNavbar === true) {
       // Count others that are already in navbar
       const count = await Category.countDocuments({ inNavbar: true, _id: { $ne: id } });
       if (count >= 3) {
@@ -96,9 +104,10 @@ router.put("/:id", protectAdmin, async (req, res) => {
 });
 
 // DELETE: Remove a category
-router.delete("/:id", protectAdmin, async (req, res) => {
+router.delete("/:id", protectAdmin, requirePermission("categories"), async (req, res) => {
   try {
-    const { id } = req.params;
+        const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid category id" });
     const deletedCategory = await Category.findByIdAndDelete(id);
 
     if (!deletedCategory) {

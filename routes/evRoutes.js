@@ -7,7 +7,8 @@ import EVRange from "../models/EVRange.js";
 import EVFeaturedConfig from '../models/EVFeaturedConfig.js';
 import Product from '../models/Product.js';
 import LoadFeaturedConfig from '../models/LoadFeaturedConfig.js';
-import { protectAdmin } from "../middleware/authMiddleware.js";
+import { protectAdmin, requirePermission } from "../middleware/authMiddleware.js";
+import { isValidObjectId } from "../utils/validate.js";
 
 const router = express.Router();
 
@@ -18,66 +19,79 @@ const handleServerError = (res, error, message) => {
     });
 };
 
-router.get("/chargers", async (req, res) => res.json(await EVCharger.find()));
-router.get("/batteries", async (req, res) => res.json(await EVBattery.find().populate('chargers')));
-router.get("/kits", async (req, res) => res.json(await EVKit.find().populate({
+const sendList = async (res, promise, message) => {
+    try {
+        res.json(await promise);
+    } catch (error) {
+        handleServerError(res, error, message);
+    }
+};
+
+router.get("/chargers", async (req, res) => sendList(res, EVCharger.find(), "Error fetching chargers"));
+router.get("/batteries", async (req, res) => sendList(res, EVBattery.find().populate('chargers'), "Error fetching batteries"));
+router.get("/kits", async (req, res) => sendList(res, EVKit.find().populate({
     path: 'batteries',
     populate: { path: 'chargers' }
-})));
-router.get("/bikes", async (req, res) => res.json(await EVBike.find().populate({
+}), "Error fetching kits"));
+router.get("/bikes", async (req, res) => sendList(res, EVBike.find().populate({
     path: 'kits',
     populate: {
         path: 'batteries',
         populate: { path: 'chargers' }
     }
-})));
-router.get("/ranges", async (req, res) => res.json(await EVRange.find().populate('kit').populate('battery')));
+}), "Error fetching bikes"));
+router.get("/ranges", async (req, res) => sendList(res, EVRange.find().populate('kit').populate('battery'), "Error fetching ranges"));
 
-router.post("/chargers", protectAdmin, async (req, res) => {
+const validateId = (req, res, next) => {
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid id" });
+    next();
+};
+
+router.post("/chargers", protectAdmin, requirePermission("config"), async (req, res) => {
     try { res.status(201).json(await new EVCharger(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating charger"); }
 });
-router.post("/batteries", protectAdmin, async (req, res) => {
+router.post("/batteries", protectAdmin, requirePermission("config"), async (req, res) => {
     try { res.status(201).json(await new EVBattery(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating battery"); }
 });
-router.post("/kits", protectAdmin, async (req, res) => {
+router.post("/kits", protectAdmin, requirePermission("config"), async (req, res) => {
     try { res.status(201).json(await new EVKit(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating kit"); }
 });
-router.post("/bikes", protectAdmin, async (req, res) => {
+router.post("/bikes", protectAdmin, requirePermission("config"), async (req, res) => {
     try { res.status(201).json(await new EVBike(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating bike"); }
 });
-router.post("/ranges", protectAdmin, async (req, res) => {
+router.post("/ranges", protectAdmin, requirePermission("config"), async (req, res) => {
     try { res.status(201).json(await new EVRange(req.body).save()); } catch (e) { handleServerError(res, e, "Error creating range"); }
 });
 
-router.put("/chargers/:id", protectAdmin, async (req, res) => {
+router.put("/chargers/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => {
     try { res.json(await EVCharger.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating charger"); }
 });
-router.put("/batteries/:id", protectAdmin, async (req, res) => {
+router.put("/batteries/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => {
     try { res.json(await EVBattery.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating battery"); }
 });
-router.put("/kits/:id", protectAdmin, async (req, res) => {
+router.put("/kits/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => {
     try { res.json(await EVKit.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating kit"); }
 });
-router.put("/bikes/:id", protectAdmin, async (req, res) => {
+router.put("/bikes/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => {
     try { res.json(await EVBike.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating bike"); }
 });
-router.put("/ranges/:id", protectAdmin, async (req, res) => {
+router.put("/ranges/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => {
     try { res.json(await EVRange.findByIdAndUpdate(req.params.id, req.body, { new: true })); } catch (e) { handleServerError(res, e, "Error updating range"); }
 });
 
-router.delete("/chargers/:id", protectAdmin, async (req, res) => { 
+router.delete("/chargers/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => { 
     try { await EVCharger.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting charger"); }
 });
-router.delete("/batteries/:id", protectAdmin, async (req, res) => { 
+router.delete("/batteries/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => { 
     try { await EVBattery.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting battery"); }
 });
-router.delete("/kits/:id", protectAdmin, async (req, res) => { 
+router.delete("/kits/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => { 
     try { await EVKit.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting kit"); }
 });
-router.delete("/bikes/:id", protectAdmin, async (req, res) => { 
+router.delete("/bikes/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => { 
     try { await EVBike.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting bike"); }
 });
-router.delete("/ranges/:id", protectAdmin, async (req, res) => { 
+router.delete("/ranges/:id", protectAdmin, requirePermission("config"), validateId, async (req, res) => { 
     try { await EVRange.findByIdAndDelete(req.params.id); res.json({ message: "Deleted" }); } catch (e) { handleServerError(res, e, "Error deleting range"); }
 });
 
@@ -100,8 +114,12 @@ router.get('/featured-products', async (req, res) => {
 });
 
 
-router.post('/featured-products', protectAdmin, async (req, res) => {
+router.post('/featured-products', protectAdmin, requirePermission('config', 'showProducts'), async (req, res) => {
   const { productIds } = req.body;
+
+  if (!Array.isArray(productIds) || productIds.length > 100 || !productIds.every(isValidObjectId)) {
+    return res.status(400).json({ message: "Invalid product list" });
+  }
 
   try {
     let config = await EVFeaturedConfig.findOne();
@@ -129,8 +147,13 @@ router.get('/load-featured-products', async (req, res) => {
   }
 });
 
-router.post('/load-featured-products', protectAdmin, async (req, res) => {
+router.post('/load-featured-products', protectAdmin, requirePermission('config', 'showProducts'), async (req, res) => {
   const { productIds } = req.body;
+
+  if (!Array.isArray(productIds) || productIds.length > 100 || !productIds.every(isValidObjectId)) {
+    return res.status(400).json({ message: "Invalid product list" });
+  }
+
   try {
     let config = await LoadFeaturedConfig.findOne();
     if (config) {

@@ -18,9 +18,18 @@ const userSchema = mongoose.Schema({
     type: String,
     required: true
   },
+  // Stores a SHA-256 hash of the one time code, never the code itself.
   otp: {
     type: String,
     default: null
+  },
+  otpExpiresAt: {
+    type: Date,
+    default: null
+  },
+  otpAttempts: {
+    type: Number,
+    default: 0
   },
   isVerified: {
     type: Boolean,
@@ -57,6 +66,8 @@ userSchema.set('toJSON', {
     delete ret._id;
     delete ret.password; 
     delete ret.otp;
+    delete ret.otpExpiresAt;
+    delete ret.otpAttempts;
   }
 });
 

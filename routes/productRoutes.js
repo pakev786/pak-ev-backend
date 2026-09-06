@@ -1,72 +1,56 @@
 import express from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import Section from "../models/Section.js";
-import { protectAdmin } from "../middleware/authMiddleware.js";
+import { protectAdmin, requirePermission } from "../middleware/authMiddleware.js";
+import { createUploader } from "../utils/upload.js";
+import { safeDeleteUpload, removeTempFile } from "../utils/paths.js";
+import { isValidObjectId, isNonEmptyString, asString, escapeRegex, toFiniteNumber } from "../utils/validate.js";
 
 const router = express.Router();
 
-// ... (Keep existing storage/upload configuration as is) ...
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = 'uploads/';
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
+const errorPayload = (error) =>
+  process.env.NODE_ENV === "production" ? "Internal Server Error" : error.message;
 
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 5000000 }, 
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|webp/;
-    const mimetype = filetypes.test(file.mimetype);
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    if (mimetype && extname) {
-      return cb(null, true);
-    }
-    cb(new Error('Only images are allowed'));
-  }
-});
+const upload = createUploader({ subDir: "", prefix: "image", maxFiles: 11 });
 
 const cpUpload = upload.fields([
-  { name: 'image', maxCount: 1 }, 
+  { name: 'image', maxCount: 1 },
   { name: 'extraImages', maxCount: 10 }
 ]);
+
+const cleanupUploads = (files) => {
+  if (!files) return;
+  Object.values(files).flat().forEach(removeTempFile);
+};
 
 // --- ROUTES ---
 
 // ... (Keep GET routes as is) ...
 router.get("/search", async (req, res) => {
-    // ... (Keep existing code)
     try {
-        const { q } = req.query;
+        // req.query values can arrive as arrays (?q=a&q=b); only accept a string.
+        const q = asString(req.query.q);
         if (!q) return res.json([]);
-        const escapeRegex = (string) => {
-            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        };
-        const safeQ = escapeRegex(q);
+
+        // Cap the length: the "fuzzy" pattern below expands every character into
+        // ".*", so a long query turns into a pathological regex that pins the
+        // database CPU (ReDoS).
+        const trimmed = q.slice(0, 60);
+        const safeQ = escapeRegex(trimmed);
         const fuzzy = safeQ.split('').join('.*');
         const regex = new RegExp(fuzzy, 'i');
+
         const products = await Product.find({
           $or: [
             { title: { $regex: regex } },
             { description: { $regex: regex } },
             { title: { $regex: safeQ, $options: 'i' } }
           ]
-        }).populate('category', 'name').sort({ createdAt: -1 });
+        }).populate('category', 'name').sort({ createdAt: -1 }).limit(100);
         res.json(products);
       } catch (error) {
-        res.status(500).json({ message: "Error searching products", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+        res.status(500).json({ message: "Error searching products", error: errorPayload(error) });
       }
 });
 
@@ -79,20 +63,30 @@ router.get("/", async (req, res) => {
           .sort({ createdAt: -1 });
         res.json(products);
       } catch (error) {
-        res.status(500).json({ message: "Error fetching products", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+        res.status(500).json({ message: "Error fetching products", error: errorPayload(error) });
       }
 });
 
 // UPDATE: Added youtubeLink to POST
-router.post("/", protectAdmin, cpUpload, async (req, res) => {
+router.post("/", protectAdmin, requirePermission("products"), cpUpload, async (req, res) => {
   try {
     const { 
       title, description, price, optionalPrice, category, section, codAvailable, isAvailable,
       deliveryCharges, deliveryTimeMin, deliveryTimeMax, warranty, youtubeLink 
     } = req.body;
     
-    if (!req.files || !req.files['image']) {
+        if (!req.files || !req.files['image']) {
       return res.status(400).json({ message: "Cover Image is required" });
+    }
+
+    if (!isNonEmptyString(title) || toFiniteNumber(price) === null || toFiniteNumber(price) < 0) {
+      cleanupUploads(req.files);
+      return res.status(400).json({ message: "Title and a valid price are required" });
+    }
+
+    if (!isValidObjectId(category)) {
+      cleanupUploads(req.files);
+      return res.status(400).json({ message: "A valid category is required" });
     }
 
     let sectionId = section;
@@ -130,28 +124,30 @@ router.post("/", protectAdmin, cpUpload, async (req, res) => {
 
     const savedProduct = await product.save();
     res.status(201).json(savedProduct);
-  } catch (error) {
-    if (req.files) {
-        // Cleanup uploads on error
-      if (req.files['image']) fs.unlinkSync(req.files['image'][0].path);
-      if (req.files['extraImages']) req.files['extraImages'].forEach(file => fs.unlinkSync(file.path));
-    }
-    console.error("Error in POST /api/products:", error);
-    res.status(500).json({ message: "Error saving product", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    } catch (error) {
+    cleanupUploads(req.files);
+    console.error("Error in POST /api/products:", error.message);
+    res.status(500).json({ message: "Error saving product", error: errorPayload(error) });
   }
 });
 
 // UPDATE: Added youtubeLink to PUT
-router.put("/:id", protectAdmin, cpUpload, async (req, res) => {
+router.put("/:id", protectAdmin, requirePermission("products"), cpUpload, async (req, res) => {
   try {
     const { 
       title, description, price, optionalPrice, category, section, codAvailable, isAvailable,
       deliveryCharges, deliveryTimeMin, deliveryTimeMax, warranty, youtubeLink
     } = req.body;
     
+    if (!isValidObjectId(req.params.id)) {
+      cleanupUploads(req.files);
+      return res.status(400).json({ message: "Invalid product id" });
+    }
+
     const product = await Product.findById(req.params.id);
 
     if (!product) {
+      cleanupUploads(req.files);
       return res.status(404).json({ message: "Product not found" });
     }
 
@@ -159,7 +155,13 @@ router.put("/:id", protectAdmin, cpUpload, async (req, res) => {
     if (description !== undefined) product.description = description;
     product.price = price || product.price;
     product.optionalPrice = optionalPrice !== undefined ? optionalPrice : product.optionalPrice;
-    product.category = category || product.category;
+        if (category !== undefined) {
+      if (!isValidObjectId(category)) {
+        cleanupUploads(req.files);
+        return res.status(400).json({ message: "Invalid category" });
+      }
+      product.category = category;
+    }
     
     // ADDED
     if (youtubeLink !== undefined) product.youtubeLink = youtubeLink;
@@ -183,11 +185,8 @@ router.put("/:id", protectAdmin, cpUpload, async (req, res) => {
     }
 
     // Handle Cover Image Replacement
-    if (req.files && req.files['image']) {
-      const cleanPath = product.image.startsWith('/') ? product.image.substring(1) : product.image;
-      const oldPath = path.resolve(cleanPath);
-      // Delete old file
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+        if (req.files && req.files['image']) {
+      safeDeleteUpload(product.image);
       product.image = `/uploads/${req.files['image'][0].filename}`;
     }
 
@@ -200,33 +199,26 @@ router.put("/:id", protectAdmin, cpUpload, async (req, res) => {
     const updatedProduct = await product.save();
     res.json(updatedProduct);
 
-  } catch (error) {
-    console.error("Error in PUT /api/products:", error);
-    res.status(500).json({ message: "Error updating product", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    } catch (error) {
+    cleanupUploads(req.files);
+    console.error("Error in PUT /api/products:", error.message);
+    res.status(500).json({ message: "Error updating product", error: errorPayload(error) });
   }
 });
 
 // --- NEW ROUTE: DELETE SPECIFIC IMAGE ---
-router.delete("/:id/images", protectAdmin, async (req, res) => {
+router.delete("/:id/images", protectAdmin, requirePermission("products"), async (req, res) => {
     try {
-        const { imageUrl, type } = req.body; // type: 'cover' or 'extra'
-        const product = await Product.findById(req.params.id);
+            const { imageUrl, type } = req.body; // type: 'cover' or 'extra'
 
+    if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid product id" });
+    if (!isNonEmptyString(imageUrl)) return res.status(400).json({ message: "imageUrl is required" });
+
+    const product = await Product.findById(req.params.id);
         if (!product) return res.status(404).json({ message: "Product not found" });
 
-        // Helper to remove file from FS
-        const removeFile = (urlPath) => {
-            if (!urlPath || typeof urlPath !== 'string') return;
-            const cleanPath = urlPath.startsWith('/') ? urlPath.substring(1) : urlPath;
-            if (cleanPath.includes('..')) return;
-            
-            const fullPath = path.resolve(cleanPath);
-            const uploadsDir = path.resolve('uploads');
-            
-            if (fullPath.startsWith(uploadsDir) && fs.existsSync(fullPath)) {
-                fs.unlinkSync(fullPath);
-            }
-        };
+        // Deletion is confined to the uploads directory by resolveUploadPath().
+        const removeFile = (urlPath) => safeDeleteUpload(urlPath);
 
         if (type === 'cover') {
             // Remove cover image
@@ -246,31 +238,24 @@ router.delete("/:id/images", protectAdmin, async (req, res) => {
         res.json({ message: "Image removed successfully", product });
 
     } catch (error) {
-        console.error("Error deleting image:", error);
-        res.status(500).json({ message: "Error deleting image", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+        console.error("Error deleting image:", error.message);
+        res.status(500).json({ message: "Error deleting image", error: errorPayload(error) });
     }
 });
 
 // ... (Keep DELETE product route as is) ...
-router.delete("/:id", protectAdmin, async (req, res) => {
+router.delete("/:id", protectAdmin, requirePermission("products"), async (req, res) => {
     // ... (Keep existing code)
     try {
-        const product = await Product.findById(req.params.id);
-        
+            if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid product id" });
+
+    const product = await Product.findById(req.params.id);
+
         if (!product) {
           return res.status(404).json({ message: "Product not found" });
         }
     
-        const safeDeleteFile = (filePath) => {
-            if (!filePath || typeof filePath !== 'string') return;
-            const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-            if (cleanPath.includes('..')) return;
-            const fullPath = path.resolve(cleanPath);
-            const uploadsDir = path.resolve('uploads');
-            if (fullPath.startsWith(uploadsDir) && fs.existsSync(fullPath)) {
-                fs.unlinkSync(fullPath);
-            }
-        };
+            const safeDeleteFile = (filePath) => safeDeleteUpload(filePath);
 
         if (product.image) safeDeleteFile(product.image);
     
@@ -282,7 +267,7 @@ router.delete("/:id", protectAdmin, async (req, res) => {
         res.json({ message: "Product deleted" });
     
       } catch (error) {
-        res.status(500).json({ message: "Error deleting product", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+        res.status(500).json({ message: "Error deleting product", error: errorPayload(error) });
       }
 });
 

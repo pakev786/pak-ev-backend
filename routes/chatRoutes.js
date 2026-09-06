@@ -1,101 +1,106 @@
 import express from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
 import Chat from "../models/Chat.js";
 import User from "../models/User.js";
-import { protectAdmin, protectUser, protectUserOrAdmin } from "../middleware/authMiddleware.js";
+import {
+  protectAdmin,
+  protectUserOrAdmin,
+  requirePermission,
+  canAccessUserData
+} from "../middleware/authMiddleware.js";
+import { createUploader } from "../utils/upload.js";
+import { removeTempFile } from "../utils/paths.js";
+import { isValidObjectId, asString } from "../utils/validate.js";
 
 const router = express.Router();
 
-// Configure Multer for Chat Uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = 'uploads/chat/';
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `chat-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
+const upload = createUploader({
+  subDir: "chat",
+  prefix: "chat",
+  allowPdf: true,
+  allowGif: true,
+  maxFiles: 1
 });
 
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 5000000 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|webp|gif|pdf/;
-    const mimetype = filetypes.test(file.mimetype);
-    if (mimetype) return cb(null, true);
-    cb(new Error('Only images and PDFs are allowed'));
-  }
-});
+const errorPayload = (error) =>
+  process.env.NODE_ENV === "production" ? "Internal Server Error" : error.message;
+
+const MAX_MESSAGE_LENGTH = 4000;
 
 // GET: Get list of users who have started a chat (For Admin)
-router.get("/users", protectAdmin, async (req, res) => {
+router.get("/users", protectAdmin, requirePermission("support"), async (req, res) => {
   try {
     const senderIds = await Chat.distinct("sender", { receiver: "ADMIN" });
     const receiverIds = await Chat.distinct("receiver", { sender: "ADMIN" });
-    const userIds = [...new Set([...senderIds, ...receiverIds])];
-    
-    const users = await User.find({ _id: { $in: userIds } }).select('name email phone');
+    const userIds = [...new Set([...senderIds, ...receiverIds])].filter((id) => isValidObjectId(id));
+
+    const users = await User.find({ _id: { $in: userIds } }).select("name email phone");
     res.json(users);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching chat users", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    res.status(500).json({ message: "Error fetching chat users", error: errorPayload(error) });
   }
 });
 
-// GET: Get conversation history
+// GET: Get conversation history (own conversation only, unless admin)
 router.get("/:userId", protectUserOrAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
+    if (!isValidObjectId(userId)) return res.status(400).json({ message: "Invalid user id" });
+    if (!canAccessUserData(req, userId)) {
+      return res.status(403).json({ message: "Not authorized to view this conversation" });
+    }
+
     const messages = await Chat.find({
       $or: [
         { sender: userId, receiver: "ADMIN" },
         { sender: "ADMIN", receiver: userId }
       ]
     }).sort({ createdAt: 1 });
-    
+
     res.json(messages);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching messages", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    res.status(500).json({ message: "Error fetching messages", error: errorPayload(error) });
   }
 });
 
 // POST: Send a message (with optional file)
-router.post("/", protectUserOrAdmin, upload.single('attachment'), async (req, res) => {
+router.post("/", protectUserOrAdmin, upload.single("attachment"), async (req, res) => {
   try {
-    const { sender, receiver, message } = req.body;
-    
-    let content = message || "";
+    // The sender/receiver pair is derived from the session, so a customer can no
+    // longer post messages that appear to come from ADMIN (or from someone else).
+    let sender;
+    let receiver;
 
-    // If file is uploaded, append its path to the message content
+    if (req.admin) {
+      const target = asString(req.body.receiver);
+      if (!isValidObjectId(target)) {
+        removeTempFile(req.file);
+        return res.status(400).json({ message: "A valid recipient is required" });
+      }
+      sender = "ADMIN";
+      receiver = target;
+    } else {
+      sender = String(req.user._id);
+      receiver = "ADMIN";
+    }
+
+    let content = asString(req.body.message).slice(0, MAX_MESSAGE_LENGTH);
+
     if (req.file) {
       const filePath = `/uploads/chat/${req.file.filename}`;
-      // If there is text, append a newline, otherwise just the path
       content = content ? `${content}\n${filePath}` : filePath;
     }
 
-    if (!content && !req.file) {
+    if (!content) {
       return res.status(400).json({ message: "Message or attachment is required" });
     }
 
-    const newChat = new Chat({ 
-      sender, 
-      receiver, 
-      message: content 
-    });
-    
+    const newChat = new Chat({ sender, receiver, message: content });
     await newChat.save();
-    
+
     res.status(201).json(newChat);
   } catch (error) {
-    // Cleanup file if DB save fails
-    if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ message: "Error sending message", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    removeTempFile(req.file);
+    res.status(500).json({ message: "Error sending message", error: errorPayload(error) });
   }
 });
 

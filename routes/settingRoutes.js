@@ -1,6 +1,7 @@
 import express from "express";
 import { protectAdmin } from "../middleware/authMiddleware.js";
 import Setting from "../models/Setting.js";
+import { isNonEmptyString, isValidEmail, asString } from "../utils/validate.js";
 
 const router = express.Router();
 
@@ -19,10 +20,13 @@ router.get("/whatsapp", async (req, res) => {
 // PUT: WhatsApp
 router.put("/whatsapp", protectAdmin, async (req, res) => {
   try {
-    const { number } = req.body;
+        const { number } = req.body;
+    if (!isNonEmptyString(number) || !/^[+0-9 ()-]{5,20}$/.test(number.trim())) {
+      return res.status(400).json({ message: "Invalid WhatsApp number" });
+    }
     const setting = await Setting.findOneAndUpdate(
       { key: 'whatsapp' },
-      { key: 'whatsapp', value: number },
+      { key: 'whatsapp', value: asString(number) },
       { new: true, upsert: true }
     );
     res.json({ number: setting.value });
@@ -44,10 +48,13 @@ router.get("/email", async (req, res) => {
 // PUT: Admin Email
 router.put("/email", protectAdmin, async (req, res) => {
   try {
-    const { email } = req.body;
+        const { email } = req.body;
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: "Invalid email address" });
+    }
     const setting = await Setting.findOneAndUpdate(
       { key: 'admin_email' },
-      { key: 'admin_email', value: email },
+      { key: 'admin_email', value: asString(email).toLowerCase() },
       { new: true, upsert: true }
     );
     res.json({ email: setting.value });

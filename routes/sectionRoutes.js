@@ -1,6 +1,7 @@
 import express from "express";
 import { protectAdmin } from "../middleware/authMiddleware.js";
 import Section from "../models/Section.js";
+import { isNonEmptyString, isValidObjectId, asString } from "../utils/validate.js";
 
 const router = express.Router();
 
@@ -17,16 +18,18 @@ router.get("/", async (req, res) => {
 // POST: Add a new section
 router.post("/", protectAdmin, async (req, res) => {
   try {
-    const { name, isMarquee } = req.body;
-    if (!name) return res.status(400).json({ message: "Name is required" });
+        const { name, isMarquee } = req.body;
+    if (!isNonEmptyString(name) || name.trim().length > 60) {
+      return res.status(400).json({ message: "Name is required" });
+    }
 
     const lastSection = await Section.findOne().sort({ order: -1 });
     const newOrder = lastSection && lastSection.order !== undefined ? lastSection.order + 1 : 0;
 
-    const section = new Section({ 
-      name, 
-      isMarquee: isMarquee || false,
-      order: newOrder 
+    const section = new Section({
+      name: asString(name),
+      isMarquee: isMarquee === true || isMarquee === 'true',
+      order: newOrder
     });
     const savedSection = await section.save();
 
@@ -41,7 +44,7 @@ router.put("/reorder", protectAdmin, async (req, res) => {
   try {
     const { orderedIds } = req.body; 
 
-    if (!orderedIds || !Array.isArray(orderedIds)) {
+        if (!Array.isArray(orderedIds) || orderedIds.length > 200 || !orderedIds.every(isValidObjectId)) {
       return res.status(400).json({ message: "Invalid data" });
     }
 
@@ -66,9 +69,16 @@ router.put("/:id", protectAdmin, async (req, res) => {
     const { name, isMarquee } = req.body;
     const { id } = req.params;
 
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid section id" });
+
     const updateData = {};
-    if (name) updateData.name = name;
-    if (isMarquee !== undefined) updateData.isMarquee = isMarquee;
+    if (name !== undefined) {
+      if (!isNonEmptyString(name) || name.trim().length > 60) {
+        return res.status(400).json({ message: "Invalid section name" });
+      }
+      updateData.name = asString(name);
+    }
+    if (isMarquee !== undefined) updateData.isMarquee = isMarquee === true || isMarquee === 'true';
 
     const updatedSection = await Section.findByIdAndUpdate(
       id,
@@ -87,7 +97,8 @@ router.put("/:id", protectAdmin, async (req, res) => {
 // DELETE: Remove a section
 router.delete("/:id", protectAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
+        const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid section id" });
     await Section.findByIdAndDelete(id);
     res.json({ message: "Section deleted successfully", id });
   } catch (error) {

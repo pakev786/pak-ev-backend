@@ -1,102 +1,73 @@
 import express from "express";
 import { protectAdmin } from "../middleware/authMiddleware.js";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
 import Banner from "../models/Banner.js";
+import { createUploader } from "../utils/upload.js";
+import { safeDeleteUpload, removeTempFile } from "../utils/paths.js";
+import { asString } from "../utils/validate.js";
 
 const router = express.Router();
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = 'uploads/banners/';
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `banner-${req.params.slot}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
+const VALID_SLOTS = ["main", "side1", "side2", "side3", "side4"];
 
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 5000000 }, 
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|webp/;
-    const mimetype = filetypes.test(file.mimetype);
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    if (mimetype && extname) return cb(null, true);
-    cb(new Error('Only images are allowed'));
+const errorPayload = (error) =>
+  process.env.NODE_ENV === "production" ? "Internal Server Error" : error.message;
+
+const upload = createUploader({ subDir: "banners", prefix: "banner", maxFiles: 1 });
+
+/**
+ * The slot used to be interpolated straight into the stored filename, so a
+ * request to /api/banners/..%2F..%2Fevil wrote the upload outside the uploads
+ * directory. Validate it before multer ever touches the request.
+ */
+const validateSlot = (req, res, next) => {
+  if (!VALID_SLOTS.includes(req.params.slot)) {
+    return res.status(400).json({ message: "Invalid slot" });
   }
-});
+  next();
+};
 
 // GET: Fetch all banners
 router.get("/", async (req, res) => {
   try {
     const banners = await Banner.find({});
     const bannerMap = {};
-    banners.forEach(b => {
+    banners.forEach((b) => {
       bannerMap[b.slot] = b;
     });
     res.json(bannerMap);
   } catch (error) {
-    res.status(500).json({ message: "Error fetching banners", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    res.status(500).json({ message: "Error fetching banners", error: errorPayload(error) });
   }
 });
 
 // POST: Update specific slot (Image + Link Data)
-router.post("/:slot", protectAdmin, upload.single('image'), async (req, res) => {
+router.post("/:slot", protectAdmin, validateSlot, upload.single("image"), async (req, res) => {
   try {
     const { slot } = req.params;
     const { linkType, linkValue, title } = req.body;
-    
-    if (!['main', 'side1', 'side2', 'side3', 'side4'].includes(slot)) {
-      return res.status(400).json({ message: "Invalid slot" });
-    }
-    
-    // Construct update object
+
     const updateData = {
       slot,
-      title: title || '',
-      linkType: linkType || 'none',
-      linkValue: linkValue || ''
+      title: asString(title).slice(0, 200),
+      linkType: asString(linkType) || "none",
+      linkValue: asString(linkValue).slice(0, 500)
     };
 
-    // If new image uploaded, handle file logic
     if (req.file) {
-      const imagePath = `/uploads/banners/${req.file.filename}`;
-      updateData.image = imagePath;
+      updateData.image = `/uploads/banners/${req.file.filename}`;
 
-      // Clean up old image
       const oldBanner = await Banner.findOne({ slot });
       if (oldBanner && oldBanner.image) {
-        const cleanPath = oldBanner.image.startsWith('/') ? oldBanner.image.substring(1) : oldBanner.image;
-        const oldPath = path.resolve(cleanPath);
-        if (fs.existsSync(oldPath)) {
-          fs.unlinkSync(oldPath);
-        }
+        safeDeleteUpload(oldBanner.image);
       }
-    } else {
-      // If no file, ensure we don't wipe existing image if it exists
-      // However, if it's a new upsert and no image, it will fail schema validation if not handled.
-      // But typically we require image on creation.
-      // For updates without image, we just don't set image field.
     }
 
-    const banner = await Banner.findOneAndUpdate(
-      { slot },
-      updateData,
-      { new: true, upsert: true }
-    );
+    const banner = await Banner.findOneAndUpdate({ slot }, updateData, { new: true, upsert: true });
 
     res.json(banner);
-
   } catch (error) {
-    if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ message: "Error saving banner", error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    removeTempFile(req.file);
+    res.status(500).json({ message: "Error saving banner", error: errorPayload(error) });
   }
 });
 
